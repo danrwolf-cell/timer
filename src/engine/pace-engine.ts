@@ -1,9 +1,12 @@
+export type CheckType = 'known' | 'secret' | 'emergency' | 'gas' | 'start' | 'finish';
+
 export interface Segment {
   distance: number;   // miles
   speed: number | null; // required avg mph, null = free/transfer
   isReset: boolean;
   isFree: boolean;
   label?: string;
+  checkType?: CheckType; // type of event at the END of this segment; pace engine ignores it
 }
 
 export interface RidePosition {

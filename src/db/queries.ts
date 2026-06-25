@@ -1,5 +1,6 @@
 import { getDb } from './schema';
 import { type Segment } from '../engine/pace-engine';
+import { type FtRules, AMA_DEFAULTS } from '../engine/free-territory';
 
 export interface RouteRow {
   id: number;
@@ -17,6 +18,7 @@ export interface SegmentRow {
   is_reset: number;
   is_free: number;
   label: string | null;
+  check_type: string | null;
 }
 
 // Routes
@@ -36,6 +38,34 @@ export function deleteRoute(id: number): void {
   getDb().runSync('DELETE FROM routes WHERE id = ?', id);
 }
 
+interface RouteRulesRow {
+  has_secret_checks: number | null;
+  ft_miles_after_check: number | null;
+  ft_miles_before_gas: number | null;
+  ft_miles_after_gas: number | null;
+  ft_calibration_mile: number | null;
+}
+
+/** Read free-territory rule params for a route, falling back to AMA defaults per-column. */
+export function getRouteRules(routeId: number): FtRules {
+  const row = getDb().getFirstSync(
+    'SELECT has_secret_checks, ft_miles_after_check, ft_miles_before_gas, ft_miles_after_gas, ft_calibration_mile FROM routes WHERE id = ?',
+    routeId
+  ) as RouteRulesRow | null;
+
+  if (!row) return { ...AMA_DEFAULTS };
+
+  return {
+    hasSecretChecks: row.has_secret_checks !== null
+      ? row.has_secret_checks === 1
+      : AMA_DEFAULTS.hasSecretChecks,
+    milesAfterCheck: row.ft_miles_after_check ?? AMA_DEFAULTS.milesAfterCheck,
+    milesBeforeGas: row.ft_miles_before_gas ?? AMA_DEFAULTS.milesBeforeGas,
+    milesAfterGas: row.ft_miles_after_gas ?? AMA_DEFAULTS.milesAfterGas,
+    ftCalibrationMile: row.ft_calibration_mile ?? AMA_DEFAULTS.ftCalibrationMile,
+  };
+}
+
 // Segments
 export function getSegments(routeId: number): Segment[] {
   const rows = getDb().getAllSync(
@@ -48,19 +78,21 @@ export function getSegments(routeId: number): Segment[] {
     isReset: r.is_reset === 1,
     isFree: r.is_free === 1,
     label: r.label ?? undefined,
+    checkType: (r.check_type ?? undefined) as Segment['checkType'],
   }));
 }
 
 export function insertSegment(
   routeId: number,
   order: number,
-  segment: Omit<Segment, 'label'> & { label?: string }
+  segment: Segment
 ): void {
   getDb().runSync(
-    `INSERT INTO route_segments (route_id, sort_order, distance, speed, is_reset, is_free, label)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO route_segments (route_id, sort_order, distance, speed, is_reset, is_free, label, check_type)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     routeId, order, segment.distance, segment.speed ?? null,
-    segment.isReset ? 1 : 0, segment.isFree ? 1 : 0, segment.label ?? null
+    segment.isReset ? 1 : 0, segment.isFree ? 1 : 0,
+    segment.label ?? null, segment.checkType ?? null
   );
 }
 

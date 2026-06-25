@@ -9,6 +9,20 @@ export function getDb(): SQLite.SQLiteDatabase {
   return db;
 }
 
+interface PragmaColumn { name: string }
+
+function migrateAddColumn(
+  db: SQLite.SQLiteDatabase,
+  table: string,
+  column: string,
+  type: string
+): void {
+  const cols = db.getAllSync(`PRAGMA table_info(${table})`) as PragmaColumn[];
+  if (!cols.some(c => c.name === column)) {
+    db.execSync(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  }
+}
+
 export function initSchema(): void {
   const database = getDb();
   database.execSync(`
@@ -30,7 +44,19 @@ export function initSchema(): void {
       is_free INTEGER NOT NULL DEFAULT 0,
       label TEXT,
       FOREIGN KEY (route_id) REFERENCES routes(id) ON DELETE CASCADE
-    );
+    );`);
+
+  // Additive migrations — safe to run on every launch.
+  // PRAGMA table_info guards prevent errors on fresh installs where the
+  // column was added in the CREATE TABLE above on a future schema version.
+  migrateAddColumn(database, 'route_segments', 'check_type', 'TEXT');
+  migrateAddColumn(database, 'routes', 'has_secret_checks', 'INTEGER');
+  migrateAddColumn(database, 'routes', 'ft_miles_after_check', 'REAL');
+  migrateAddColumn(database, 'routes', 'ft_miles_before_gas', 'REAL');
+  migrateAddColumn(database, 'routes', 'ft_miles_after_gas', 'REAL');
+  migrateAddColumn(database, 'routes', 'ft_calibration_mile', 'REAL');
+
+  database.execSync(`
 
     CREATE TABLE IF NOT EXISTS rides (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
