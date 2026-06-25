@@ -60,26 +60,32 @@ Tests: 21/21 passing.
 
 ## Near-term priorities (ordered)
 
-### Priority 1 — Raw CSC log (must land before next real ride)
+### Priority 1 — Raw CSC log + replay harness (must land before next real ride)
 
-**Why first:** The derived `ride_log` table stores `(cumulative_distance, deviation_seconds)` sampled every 5 seconds. That is permanently lossy. The raw notification stream — `(cumulative_revs, wheel_event_time, wall_clock_ms)` — is what the C firmware gets validated against. Once a ride happens without this, that replay corpus is gone forever.
+**Why first:** The derived `ride_log` table stores `(cumulative_distance, deviation_seconds)` sampled every 5 seconds. That is permanently lossy. The raw notification stream — `(cumulative_revs, wheel_event_time, wall_clock_ms)` — is what the C firmware gets validated against. Once a ride happens without this, that replay corpus is gone forever. But the corpus is inert without a runner that can feed it through the engine and assert the output. The harness is what makes the TS engine a "golden reference" in any enforceable sense — a log you can't replay is just a file.
 
-**Schema addition to `src/db/schema.ts`:**
+**Schema — new table `raw_csc_log` in `src/db/schema.ts`:**
 
 ```sql
-CREATE TABLE IF NOT EXISTS csc_raw_log (
-  id              INTEGER PRIMARY KEY AUTOINCREMENT,
-  ride_id         INTEGER NOT NULL,
-  wall_clock_ms   INTEGER NOT NULL,   -- Date.now() at notification receipt
-  cumulative_revs INTEGER NOT NULL,   -- raw 32-bit value from characteristic
-  wheel_event_time INTEGER NOT NULL,  -- raw 16-bit 1/1024s timestamp
+CREATE TABLE IF NOT EXISTS raw_csc_log (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  ride_id          INTEGER NOT NULL,
+  wall_clock_ms    INTEGER NOT NULL,   -- Date.now() at notification receipt
+  cumulative_revs  INTEGER NOT NULL,   -- decoded 32-bit wheel revolution counter
+  wheel_event_time INTEGER NOT NULL,   -- decoded 16-bit 1/1024s timestamp
   FOREIGN KEY (ride_id) REFERENCES rides(id) ON DELETE CASCADE
 );
 ```
 
-**Capture point:** Inside `ble-manager.ts`, `subscribeToSpeed()`, immediately after decoding `bytes` and before calling `parseCscNotification`. The raw values are available at that point. The write goes to a queue that flushes in batches (every ~50 rows or every 10s) — do not SQLite-write synchronously on every BLE notification, that will block the JS thread at ~1Hz.
+Store the **decoded** `(cumulative_revs, wheel_event_time)` pair, not the raw base64 bytes. The decoded pair is what both the TS and C parsers actually consume. Storing raw bytes would force the replay harness to re-walk CSC flag parsing, which is not the thing under test. The table is separate from `ride_log` because the cardinality is totally different: one row per BLE notification (~1 Hz) versus a 5-second derived sample.
 
-The `csc-parser.ts` signature does not change. The raw log is captured by the manager, not the parser. The parser stays a pure function.
+**Capture point:** Inside `ble-manager.ts`, `subscribeToSpeed()`, after decoding `bytes` and extracting `cumulativeRevolutions` / `lastEventTime`, before calling `parseCscNotification`. The write goes to a queue that flushes in batches (every ~50 rows or 10s) — do not SQLite-write synchronously on every BLE notification, that will block the JS thread.
+
+The `csc-parser.ts` signature does not change. The raw log is captured by the manager, not the parser.
+
+**Replay harness — `src/engine/replay.ts` + snapshot test:**
+
+Read `raw_csc_log` rows for a ride, feed them sequentially through `parseCscNotification` then the pace engine, and produce a `deviation_seconds` series. Snapshot-test it so any engine change that alters the numbers fails loudly. This is also the exact function you point at C firmware output later: same inputs, compare outputs row by row.
 
 ---
 
@@ -95,20 +101,18 @@ if (deltaRevs < 0) {
 
 This correctly handles counter rollover after ~4 billion revolutions (years of riding). It does *not* handle a sensor **power-cycle**, where the cumulative counter resets to 0. In that case `deltaRevs` is a large negative number, the guard adds 4B to it, and the result is a near-4-billion-rev delta. This is the "mileage jumped to a huge number" failure documented in CheckPoint Two reviews.
 
-**Fix:** After computing `deltaRevs` (post-rollover guard), clamp by implied speed. If the implied speed exceeds a hard ceiling, discard the update and return `null`. The ceiling should be comfortably above any plausible enduro speed but below what a counter reset produces.
+**Fix — order matters:** Both a genuine 32-bit rollover and a power-cycle present as a negative `deltaRevs`. The way to tell them apart is where the new counter lands: a real rollover produces a new value near the top of the 32-bit range with a plausible implied speed; a power-cycle resets to near zero and implies an absurd speed after the rollover guard inflates it.
 
-```ts
-// ~150 mph ceiling — enduro will never see this
-const MAX_PLAUSIBLE_SPEED_MPH = 150;
-const maxRevs = (MAX_PLAUSIBLE_SPEED_MPH / 2.23694) * deltaTimeSeconds / (wheelCircumferenceMm / 1000);
-if (deltaRevs > maxRevs) {
-  return { state, update: null };
-}
-```
+The correct order:
 
-This discards the first notification after a power-cycle (which is correct — we have no valid delta yet) and recovers cleanly on the next one. Add a test case: sensor powers off, resets counter to 0, sends first notification — should return `null` update, not a huge speed.
+1. Compute raw `deltaRevs = cumulativeRevolutions - prev.cumulativeRevolutions`
+2. **Before** the rollover guard: if `deltaRevs` is negative and the new `cumulativeRevolutions` is small (near zero, say `< 1000`), treat it as a power-cycle — re-baseline `cscState` to the new reading, return `{ state, update: null }`. No rollover correction applied.
+3. **After** that check: apply the genuine 32-bit rollover correction for the case where the counter wrapped naturally near `0xFFFFFFFF`.
+4. Clamp by implied speed as a final backstop against any other implausible delta.
 
-The state still updates to the new `cumulativeRevolutions` value, so subsequent deltas are computed from the correct new baseline.
+Add a code comment at the branch point because this is non-obvious: "A negative delta can mean counter rollover (~4B revs, years of riding) or sensor power-cycle (counter resets to 0). Distinguish by where the new counter lands: near zero = power-cycle, re-baseline. Near max = genuine rollover, apply correction."
+
+Add test cases for both: genuine rollover near `0xFFFFFFFF`, and power-cycle reset to small value. Both should produce `null` update on the bad notification and correct speed on the next one.
 
 ---
 
@@ -124,13 +128,10 @@ Target remote for first validation: the BT shutter / media remote family (AB Shu
 
 ---
 
-### Priority 4 — Auto-reset detection and iOS BLE backgrounding
+### Priority 4a — Auto-reset detection (unit-testable, no device needed)
 
-These are paired because both affect ride correctness and both need real-hardware testing to validate.
+The current store logic keys off proximity to segment start, which can be skipped between BLE updates:
 
-**Auto-reset detection gap:**
-
-The current store logic:
 ```ts
 const justCrossedReset =
   currentSeg?.isReset &&
@@ -138,22 +139,24 @@ const justCrossedReset =
   position.segmentIndex !== get().segmentIndex;
 ```
 
-This can be skipped entirely if two BLE notifications bracket the segment boundary — the segment index changes but `distanceInSegment` is already past 0.05 miles by the time the next update arrives. At 30 mph, the bike travels ~0.05 miles in ~6 seconds, which is longer than the typical BLE notification interval but not by much. Under vibration with variable notification timing, misses are plausible.
+At 30 mph the bike travels ~0.05 miles in ~6 seconds. If two BLE notifications bracket the segment boundary and the second one lands more than 0.05 miles past it, the reset is silently dropped.
 
-**Fix:** Track the previous `segmentIndex` in the store. On every `updateDistance` call, check whether `segmentIndex` increased. If so, walk the crossed segments and apply any reset that was passed through, regardless of current `distanceInSegment`. This is a boundary-crossing detector, not a proximity detector.
+**Fix:** This is pure engine logic — a boundary-crossing detector, not a proximity detector. Track `prevSegmentIndex` in the store. On every `updateDistance`, if `segmentIndex > prevSegmentIndex`, walk the segments that were crossed and apply any reset that appeared in that range, regardless of current `distanceInSegment`. Fully testable with constructed inputs against the pace engine; no device required.
 
-**iOS BLE backgrounding:**
+---
 
-`react-native-ble-plx` uses Core Bluetooth's background mode (`bluetooth-central`). When the app goes to background on iOS (screen off, phone in pocket), Core Bluetooth continues delivering notifications but with coalesced timing — you may get batched notifications with stale timestamps rather than real-time ones. More critically, if iOS suspends the JS runtime, the reconnect logic in `ble-manager.ts` may not execute on schedule.
+### Priority 4b — iOS BLE backgrounding (field test, device required)
 
-This is not a Phase 2 discovery item. It directly affects whether the phone app is trustworthy in a race scenario. It needs to be prototyped and tested before you ride with this:
+`react-native-ble-plx` uses Core Bluetooth's `bluetooth-central` background mode. When the app goes to background, Core Bluetooth continues delivering notifications but with coalesced timing — batched with stale timestamps rather than real-time. If iOS suspends the JS runtime, the reconnect logic in `ble-manager.ts` may not execute on schedule.
+
+This is not a Phase 2 discovery item. It directly affects whether the phone app is trustworthy in a race scenario and needs to be tested on real hardware before riding:
 
 - Add `bluetooth-central` background mode to `app.json` / `Info.plist`
-- Test: connect sensor, lock phone, ride for 5 minutes, disconnect/reconnect sensor mid-ride, confirm SENSOR LOST fires and reconnect completes without app in foreground
-- Test: lock phone, leave it in a pocket, confirm `ride_log` entries accumulate at the expected rate (not coalesced into large gaps)
-- If Core Bluetooth coalescing is a problem, the fix is to timestamp notifications using `wall_clock_ms` at receipt rather than trusting the BLE event timestamps for elapsed time — but this needs measurement, not assumption
+- Test: connect sensor, lock phone, ride for 5 minutes, disconnect and reconnect sensor mid-ride — confirm SENSOR LOST fires and reconnect completes without the app in foreground
+- Test: lock phone in a pocket, confirm `raw_csc_log` entries accumulate at the expected ~1 Hz rate (not coalesced into large gaps)
+- If coalescing is a problem, the fix is to use `wall_clock_ms` at receipt for elapsed-time calculation rather than BLE event timestamps — but measure first, don't assume
 
-Document the findings. They directly inform whether the phone can be trusted as a solo race tool or whether it is a companion-only device sooner than planned.
+These are separate tasks from 4a. 4a can be closed with a unit test. 4b can only be closed with a field test. Bundling them tends to mean 4b gets deferred under cover of 4a being done.
 
 ---
 
@@ -194,10 +197,11 @@ Goal: a working app you can ride with that produces trustworthy numbers and a ra
 - [x] BLE manager with reconnect
 - [x] SQLite schema (routes, segments, rides, ride_log)
 - [x] All four screens (library, pre-ride, live, post-ride)
-- [ ] **Raw CSC log table + capture in BLE manager** ← Priority 1
-- [ ] **Speed sanity clamp in CSC parser** ← Priority 2
-- [ ] **iOS BLE backgrounding — prototype and document** ← Priority 4
-- [ ] **Auto-reset: boundary-crossing detector** ← Priority 4
+- [ ] **Raw CSC log table (`raw_csc_log`) + capture in BLE manager** ← Priority 1
+- [ ] **Replay harness (`src/engine/replay.ts`) + snapshot test** ← Priority 1
+- [ ] **Speed sanity clamp in CSC parser (power-cycle vs. rollover)** ← Priority 2
+- [ ] **Auto-reset: boundary-crossing detector** ← Priority 4a (unit test, no device)
+- [ ] **iOS BLE backgrounding — prototype and field test** ← Priority 4b (device required)
 - [ ] EAS build, TestFlight, ride with it
 
 ### Phase 2 — Phone companion solidified
