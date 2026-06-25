@@ -7,9 +7,19 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.danwolf.enduro",
+      "infoPlist": {
+        "NSBluetoothAlwaysUsageDescription": "This app connects to your speed sensor and handlebar remote over Bluetooth to track your pace.",
+        "UIBackgroundModes": ["bluetooth-central"]
+      }
     },
     "android": {
+      "package": "com.danwolf.enduro",
+      "permissions": [
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.BLUETOOTH_CONNECT"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
