@@ -70,3 +70,25 @@ export function distanceToNextEvent(segments: Segment[], position: RidePosition)
   if (!current) return null;
   return current.distance - position.distanceInSegment;
 }
+
+/**
+ * Returns true if any segment boundary crossed since the last update carried
+ * a reset checkpoint.
+ *
+ * Keying off index advance rather than proximity to the segment start means
+ * a reset cannot be silently dropped because two BLE notifications bracketed
+ * the boundary and the second landed more than the proximity threshold past it.
+ * Also handles the case where multiple boundaries are crossed in one update —
+ * the reset need not be on the final segment entered.
+ */
+export function crossedReset(
+  segments: Segment[],
+  prevSegmentIndex: number,
+  currentSegmentIndex: number
+): boolean {
+  if (currentSegmentIndex <= prevSegmentIndex) return false;
+  for (let i = prevSegmentIndex + 1; i <= currentSegmentIndex; i++) {
+    if (segments[i]?.isReset) return true;
+  }
+  return false;
+}

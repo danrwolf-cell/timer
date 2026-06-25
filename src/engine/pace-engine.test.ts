@@ -4,6 +4,7 @@ import {
   computeDeviation,
   isInFreeSegment,
   distanceToNextEvent,
+  crossedReset,
   type Segment,
 } from './pace-engine';
 
@@ -109,5 +110,58 @@ describe('distanceToNextEvent', () => {
   it('returns distance remaining in current segment', () => {
     const pos = { segmentIndex: 0, distanceInSegment: 3, cumulativeDistance: 3 };
     expect(distanceToNextEvent(segments, pos)).toBeCloseTo(2);
+  });
+});
+
+describe('crossedReset', () => {
+  // Segments: plain, plain, reset, plain, reset
+  const segments: Segment[] = [
+    scored(5, 30, false), // 0
+    scored(5, 30, false), // 1
+    scored(5, 30, true),  // 2 — reset
+    scored(5, 30, false), // 3
+    scored(5, 30, true),  // 4 — reset
+  ];
+
+  it('returns false when segment index has not advanced', () => {
+    expect(crossedReset(segments, 1, 1)).toBe(false);
+  });
+
+  it('returns false when current index is behind prev (should never happen in practice)', () => {
+    expect(crossedReset(segments, 3, 2)).toBe(false);
+  });
+
+  it('returns false when advancing forward but no reset in range', () => {
+    // Moving from 0 to 1 — segment 1 has no reset
+    expect(crossedReset(segments, 0, 1)).toBe(false);
+  });
+
+  it('returns true when directly entering a reset segment', () => {
+    // Moving from 1 to 2 — segment 2 is a reset
+    expect(crossedReset(segments, 1, 2)).toBe(true);
+  });
+
+  it('returns true when reset segment is skipped past (current index > reset index)', () => {
+    // Moving from 1 to 3 in one update — segment 2 (reset) was crossed
+    expect(crossedReset(segments, 1, 3)).toBe(true);
+  });
+
+  it('returns true when multiple boundaries crossed and reset is not the final segment', () => {
+    // Moving from 0 to 3 — segment 2 (reset) is in the middle of the crossed range
+    expect(crossedReset(segments, 0, 3)).toBe(true);
+  });
+
+  it('returns true for the second reset when crossing from 3 to 4', () => {
+    expect(crossedReset(segments, 3, 4)).toBe(true);
+  });
+
+  it('returns true when both resets are crossed in one update', () => {
+    // Moving from 0 to 4 in a single huge jump
+    expect(crossedReset(segments, 0, 4)).toBe(true);
+  });
+
+  it('returns false on out-of-bounds current index (no segment there)', () => {
+    // Segment 5 does not exist — segments[5] is undefined, safe to call
+    expect(crossedReset(segments, 4, 5)).toBe(false);
   });
 });

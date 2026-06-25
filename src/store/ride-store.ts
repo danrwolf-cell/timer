@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { type Segment, detectSegment, computeKeyTime, computeDeviation, isInFreeSegment } from '../engine/pace-engine';
+import { type Segment, detectSegment, computeKeyTime, computeDeviation, isInFreeSegment, crossedReset } from '../engine/pace-engine';
 
 export type SensorStatus = 'disconnected' | 'connecting' | 'connected' | 'lost';
 
@@ -55,7 +55,7 @@ export const useRideStore = create<RideState>((set, get) => ({
     }),
 
   updateDistance: (distanceMi, speedMph) => {
-    const { segments, startTime, isRiding } = get();
+    const { segments, startTime, isRiding, segmentIndex: prevSegmentIndex } = get();
     if (!isRiding || !startTime || segments.length === 0) return;
 
     const position = detectSegment(segments, distanceMi);
@@ -64,17 +64,12 @@ export const useRideStore = create<RideState>((set, get) => ({
     const deviation = computeDeviation(elapsedSeconds, keyTime);
     const inFree = isInFreeSegment(segments, position.segmentIndex);
 
-    // Auto-detect reset checkpoint
-    const currentSeg = segments[position.segmentIndex];
-    const justCrossedReset =
-      currentSeg?.isReset &&
-      position.distanceInSegment < 0.05 && // within 0.05mi of segment start
-      position.segmentIndex !== get().segmentIndex;
+    const didCrossReset = crossedReset(segments, prevSegmentIndex, position.segmentIndex);
 
     set({
       cumulativeDistanceMi: distanceMi,
       currentSpeedMph: speedMph,
-      deviationSeconds: justCrossedReset ? 0 : deviation,
+      deviationSeconds: didCrossReset ? 0 : deviation,
       segmentIndex: position.segmentIndex,
       inFreeSection: inFree,
     });

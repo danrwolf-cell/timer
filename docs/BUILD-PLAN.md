@@ -45,74 +45,33 @@ The phone live-screen is a functional demo and a validation harness, not a shipp
 
 ## Current codebase state (as of this writing)
 
-Tests: 21/21 passing.
+Tests: 84/84 passing.
 
 | File | Status |
 |---|---|
-| `src/engine/pace-engine.ts` | Decided. Pure functions. Formula uses `* 3600` (seconds). The plan doc said `* 60` — the doc was wrong, the code is right. |
-| `src/ble/csc-parser.ts` | Decided. Pure function. Has a 32-bit rollover guard that will misread sensor power-cycles — see Priority 2 below. |
-| `src/ble/ble-manager.ts` | Working. iOS backgrounding behavior untested — see Priority 4. |
-| `src/store/ride-store.ts` | Working. Auto-reset detection has a known gap — see Priority 4. |
-| `src/db/schema.ts` | Working. Missing raw CSC log table — see Priority 1. |
+| `src/engine/pace-engine.ts` | Decided. Pure functions. Formula uses `* 3600` (seconds). `crossedReset()` added — boundary-crossing detector, Priority 4a done. |
+| `src/engine/free-territory.ts` | **New.** Pure module. Free-territory/secret-check planning: AMA-traditional rules, `freeTerritory`, `checkableTerritory`, `freeTerritoryAt`, `mergeIntervals`. No UI surface yet — see Phase 2. |
+| `src/engine/replay.ts` | **New.** Replay harness: feeds `raw_csc_log` rows through parser + engine, produces deviation-over-distance. Snapshot-tested. Priority 1 done. |
+| `src/ble/csc-parser.ts` | Decided. Power-cycle vs. genuine 32-bit rollover distinguished by previous counter value. 150 mph speed ceiling backstop. Priority 2 done. |
+| `src/ble/ble-manager.ts` | Working. Captures decoded CSC pair to `raw_csc_log` unconditionally (including null-update cases). iOS backgrounding untested — see Priority 4b. |
+| `src/store/ride-store.ts` | Working. Auto-reset now uses `crossedReset()` — boundary-crossing detector. Priority 4a done. |
+| `src/db/schema.ts` | Working. `raw_csc_log` table added. Additive migrations for `check_type`, `has_secret_checks`, and FT rule columns via PRAGMA-guarded ALTERs. |
+| `src/db/queries.ts` | Working. `check_type` in read/write. `getRouteRules()` returns `FtRules` with per-column AMA fallbacks. `ride_log.source` column (`'live'`\|`'replay'`) distinguishes live-computed from post-hoc replay. |
 | All four screens | Working shell. Phone live-screen intentionally lean per above. |
 
 ---
 
 ## Near-term priorities (ordered)
 
-### Priority 1 — Raw CSC log + replay harness (must land before next real ride)
+### Priority 1 — Raw CSC log + replay harness ✅ DONE
 
-**Why first:** The derived `ride_log` table stores `(cumulative_distance, deviation_seconds)` sampled every 5 seconds. That is permanently lossy. The raw notification stream — `(cumulative_revs, wheel_event_time, wall_clock_ms)` — is what the C firmware gets validated against. Once a ride happens without this, that replay corpus is gone forever. But the corpus is inert without a runner that can feed it through the engine and assert the output. The harness is what makes the TS engine a "golden reference" in any enforceable sense — a log you can't replay is just a file.
-
-**Schema — new table `raw_csc_log` in `src/db/schema.ts`:**
-
-```sql
-CREATE TABLE IF NOT EXISTS raw_csc_log (
-  id               INTEGER PRIMARY KEY AUTOINCREMENT,
-  ride_id          INTEGER NOT NULL,
-  wall_clock_ms    INTEGER NOT NULL,   -- Date.now() at notification receipt
-  cumulative_revs  INTEGER NOT NULL,   -- decoded 32-bit wheel revolution counter
-  wheel_event_time INTEGER NOT NULL,   -- decoded 16-bit 1/1024s timestamp
-  FOREIGN KEY (ride_id) REFERENCES rides(id) ON DELETE CASCADE
-);
-```
-
-Store the **decoded** `(cumulative_revs, wheel_event_time)` pair, not the raw base64 bytes. The decoded pair is what both the TS and C parsers actually consume. Storing raw bytes would force the replay harness to re-walk CSC flag parsing, which is not the thing under test. The table is separate from `ride_log` because the cardinality is totally different: one row per BLE notification (~1 Hz) versus a 5-second derived sample.
-
-**Capture point:** Inside `ble-manager.ts`, `subscribeToSpeed()`, after decoding `bytes` and extracting `cumulativeRevolutions` / `lastEventTime`, before calling `parseCscNotification`. The write goes to a queue that flushes in batches (every ~50 rows or 10s) — do not SQLite-write synchronously on every BLE notification, that will block the JS thread.
-
-The `csc-parser.ts` signature does not change. The raw log is captured by the manager, not the parser.
-
-**Replay harness — `src/engine/replay.ts` + snapshot test:**
-
-Read `raw_csc_log` rows for a ride, feed them sequentially through `parseCscNotification` then the pace engine, and produce a `deviation_seconds` series. Snapshot-test it so any engine change that alters the numbers fails loudly. This is also the exact function you point at C firmware output later: same inputs, compare outputs row by row.
+`raw_csc_log` table captures decoded `(cumulative_revs, wheel_event_time, wall_clock_ms)` per BLE notification, unconditionally — null-update cases included. Batched queue flushes at 50 rows or 10s. `ride_log` gains a `source` column (`'live'`|`'replay'`). `src/engine/replay.ts` feeds `raw_csc_log` rows through the parser and pace engine, produces deviation-over-distance. Snapshot-tested with a synthetic corpus covering free sections, resets, and a mid-ride power-cycle.
 
 ---
 
-### Priority 2 — Speed sanity clamp in `csc-parser.ts`
+### Priority 2 — Speed sanity clamp / power-cycle vs. rollover ✅ DONE
 
-**Why second:** The current 32-bit rollover guard:
-
-```ts
-if (deltaRevs < 0) {
-  deltaRevs += 0x100000000;
-}
-```
-
-This correctly handles counter rollover after ~4 billion revolutions (years of riding). It does *not* handle a sensor **power-cycle**, where the cumulative counter resets to 0. In that case `deltaRevs` is a large negative number, the guard adds 4B to it, and the result is a near-4-billion-rev delta. This is the "mileage jumped to a huge number" failure documented in CheckPoint Two reviews.
-
-**Fix — order matters:** Both a genuine 32-bit rollover and a power-cycle present as a negative `deltaRevs`. The way to tell them apart is where the new counter lands: a real rollover produces a new value near the top of the 32-bit range with a plausible implied speed; a power-cycle resets to near zero and implies an absurd speed after the rollover guard inflates it.
-
-The correct order:
-
-1. Compute raw `deltaRevs = cumulativeRevolutions - prev.cumulativeRevolutions`
-2. **Before** the rollover guard: if `deltaRevs` is negative and the new `cumulativeRevolutions` is small (near zero, say `< 1000`), treat it as a power-cycle — re-baseline `cscState` to the new reading, return `{ state, update: null }`. No rollover correction applied.
-3. **After** that check: apply the genuine 32-bit rollover correction for the case where the counter wrapped naturally near `0xFFFFFFFF`.
-4. Clamp by implied speed as a final backstop against any other implausible delta.
-
-Add a code comment at the branch point because this is non-obvious: "A negative delta can mean counter rollover (~4B revs, years of riding) or sensor power-cycle (counter resets to 0). Distinguish by where the new counter lands: near zero = power-cycle, re-baseline. Near max = genuine rollover, apply correction."
-
-Add test cases for both: genuine rollover near `0xFFFFFFFF`, and power-cycle reset to small value. Both should produce `null` update on the bad notification and correct speed on the next one.
+Both a genuine 32-bit rollover and a sensor power-cycle present as negative `deltaRevs`. Distinguished by where the **previous** counter was: if `prev.cumulativeRevolutions >= 0xFF000000`, it was near the 32-bit max and the rollover is genuine; otherwise it's a power-cycle. Power-cycle re-baselines `cscState` and emits no update. 150 mph speed ceiling as final backstop. Four test cases covering both failure modes and recovery.
 
 ---
 
@@ -128,20 +87,9 @@ Target remote for first validation: the BT shutter / media remote family (AB Shu
 
 ---
 
-### Priority 4a — Auto-reset detection (unit-testable, no device needed)
+### Priority 4a — Auto-reset detection ✅ DONE
 
-The current store logic keys off proximity to segment start, which can be skipped between BLE updates:
-
-```ts
-const justCrossedReset =
-  currentSeg?.isReset &&
-  position.distanceInSegment < 0.05 &&
-  position.segmentIndex !== get().segmentIndex;
-```
-
-At 30 mph the bike travels ~0.05 miles in ~6 seconds. If two BLE notifications bracket the segment boundary and the second one lands more than 0.05 miles past it, the reset is silently dropped.
-
-**Fix:** This is pure engine logic — a boundary-crossing detector, not a proximity detector. Track `prevSegmentIndex` in the store. On every `updateDistance`, if `segmentIndex > prevSegmentIndex`, walk the segments that were crossed and apply any reset that appeared in that range, regardless of current `distanceInSegment`. Fully testable with constructed inputs against the pace engine; no device required.
+`crossedReset(segments, prevSegmentIndex, currentSegmentIndex)` is a pure function in `pace-engine.ts`. Walks every segment entered since the last update (`prevSegmentIndex+1` through `currentSegmentIndex` inclusive); returns true if any has `isReset`. The store reads `segmentIndex` from state before recomputing, passes it as `prevSegmentIndex`, and replaces the old proximity check with a call to `crossedReset`. Cannot miss a reset that was bracketed between two BLE notifications, or one that was skipped past in a large single update. Nine unit tests covering all crossing cases.
 
 ---
 
@@ -197,10 +145,10 @@ Goal: a working app you can ride with that produces trustworthy numbers and a ra
 - [x] BLE manager with reconnect
 - [x] SQLite schema (routes, segments, rides, ride_log)
 - [x] All four screens (library, pre-ride, live, post-ride)
-- [ ] **Raw CSC log table (`raw_csc_log`) + capture in BLE manager** ← Priority 1
-- [ ] **Replay harness (`src/engine/replay.ts`) + snapshot test** ← Priority 1
-- [ ] **Speed sanity clamp in CSC parser (power-cycle vs. rollover)** ← Priority 2
-- [ ] **Auto-reset: boundary-crossing detector** ← Priority 4a (unit test, no device)
+- [x] **Raw CSC log table (`raw_csc_log`) + capture in BLE manager** ← Priority 1
+- [x] **Replay harness (`src/engine/replay.ts`) + snapshot test** ← Priority 1
+- [x] **Speed sanity clamp in CSC parser (power-cycle vs. rollover)** ← Priority 2
+- [x] **Auto-reset: boundary-crossing detector** ← Priority 4a (unit test, no device)
 - [ ] **iOS BLE backgrounding — prototype and field test** ← Priority 4b (device required)
 - [ ] EAS build, TestFlight, ride with it
 
@@ -212,10 +160,12 @@ Goal: a working app you can ride with that produces trustworthy numbers and a ra
 - [ ] Audio cues to Bluetooth speakers
 - [ ] Keep-awake + screen brightness management
 - [ ] Transfer section time allowances (vs. fully free)
+- [ ] Free-territory UI: zone overlay in route builder, live "check possible" state on live screen (`free-territory.ts` is built and fully tested — no UI surface yet)
 
 ### Phase 3 — ESP32 bring-up
 
-- [ ] ESP32 + Sharp Memory LCD hardware selection and board bringup
+- [ ] ESP32 + Sharp Memory LCD hardware selection and board bringup (ESP32-S3 preferred; LCD model TBD on enclosure size)
+- [ ] Sharp Memory LCD draw spec: 1-bit layout, signed-seconds hero digit, ON TIME hero text, time-format scaling, per-check DQ states with max_late_seconds
 - [ ] C port of pace engine, validated against TS unit test vectors
 - [ ] C CSC parser, validated against TS unit test vectors
 - [ ] Custom GATT service (ROUTE_SHEET, RIDE_LOG, DEVICE_STATUS, CONTROL)
