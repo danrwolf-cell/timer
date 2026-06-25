@@ -66,3 +66,49 @@ describe('parseCscNotification', () => {
     expect(update!.speedMph).toBeCloseTo(29.3, 0); // close to 30mph
   });
 });
+
+describe('power-cycle and rollover handling', () => {
+  it('treats counter reset to near-zero as power-cycle: emits null, re-baselines', () => {
+    // Sensor was at 50000 revs, powered off, restarted at 0
+    const prev: CscState = { cumulativeRevolutions: 50000, lastEventTime: 1024 };
+    const packet = buildPacket(0, 2048); // counter reset to 0
+    const { state, update } = parseCscNotification(packet, prev);
+    // No update — power-cycle, we drop this notification
+    expect(update).toBeNull();
+    // State re-baselined to new counter value so next delta is clean
+    expect(state.cumulativeRevolutions).toBe(0);
+  });
+
+  it('recovers correctly on the notification after a power-cycle', () => {
+    // First notification after reset: re-baselined to { revs: 0, time: 2048 }
+    const prev: CscState = { cumulativeRevolutions: 0, lastEventTime: 2048 };
+    // Next notification: 6 revs in 1 second = ~30 mph
+    const packet = buildPacket(6, 3072);
+    const { update } = parseCscNotification(packet, prev);
+    expect(update).not.toBeNull();
+    expect(update!.speedMph).toBeCloseTo(29.3, 0);
+  });
+
+  it('handles genuine 32-bit counter rollover (counter was near max)', () => {
+    // Counter was at 0xFFFFFFF0 (just below max), rolled over to 5
+    // True delta = 5 + (0x100000000 - 0xFFFFFFF0) = 5 + 16 = 21 revs
+    const prev: CscState = { cumulativeRevolutions: 0xFFFFFFF0, lastEventTime: 1024 };
+    const packet = buildPacket(5, 2048); // 1 second later
+    const { state, update } = parseCscNotification(packet, prev);
+    expect(update).not.toBeNull();
+    // 21 revs * 2.183m / 1s = ~46 mph — plausible
+    expect(update!.deltaRevolutions).toBe(21);
+    expect(update!.speedMph).toBeCloseTo(21 * 2.183 * 2.23694, 0);
+    expect(state.cumulativeRevolutions).toBe(5);
+  });
+
+  it('discards implausibly fast update as final backstop', () => {
+    // Construct a delta that somehow implies >150 mph (shouldn't happen after
+    // power-cycle check, but backstop should catch anything that slips through)
+    const prev: CscState = { cumulativeRevolutions: 0, lastEventTime: 0 };
+    // 1000 revs in 1 second = ~2183 m/s = ~4883 mph — clearly bogus
+    const packet = buildPacket(1000, 1024);
+    const { update } = parseCscNotification(packet, prev);
+    expect(update).toBeNull();
+  });
+});
