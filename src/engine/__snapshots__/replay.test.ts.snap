@@ -1,0 +1,11 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`replayRide snapshot: synthetic corpus produces stable deviation series: free end deviation 1`] = `51`;
+
+exports[`replayRide snapshot: synthetic corpus produces stable deviation series: seg1 end deviation 1`] = `3.360520461803887`;
+
+exports[`replayRide snapshot: synthetic corpus produces stable deviation series: seg1 end distance 1`] = `0.996995662818301`;
+
+exports[`replayRide snapshot: synthetic corpus produces stable deviation series: seg2 end deviation 1`] = `50.16778928007682`;
+
+exports[`replayRide snapshot: synthetic corpus produces stable deviation series: seg2 end distance 1`] = `1.9288814047994878`;

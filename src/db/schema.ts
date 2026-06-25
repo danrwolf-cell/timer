@@ -47,6 +47,16 @@ export function initSchema(): void {
       timestamp TEXT NOT NULL,
       cumulative_distance REAL NOT NULL,
       deviation_seconds REAL NOT NULL,
+      source TEXT NOT NULL DEFAULT 'live',
+      FOREIGN KEY (ride_id) REFERENCES rides(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS raw_csc_log (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      ride_id          INTEGER NOT NULL,
+      wall_clock_ms    INTEGER NOT NULL,
+      cumulative_revs  INTEGER NOT NULL,
+      wheel_event_time INTEGER NOT NULL,
       FOREIGN KEY (ride_id) REFERENCES rides(id) ON DELETE CASCADE
     );
   `);

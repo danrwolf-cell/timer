@@ -1,6 +1,7 @@
 import { BleManager, Device, Subscription, BleError, State } from 'react-native-ble-plx';
 import { parseCscNotification, type CscState } from './csc-parser';
 import { useRideStore } from '../store/ride-store';
+import { enqueueRawCscRow, flushRawCscQueue } from '../db/queries';
 
 const CSC_SERVICE = '00001816-0000-1000-8000-00805f9b34fb';
 const CSC_CHARACTERISTIC = '00002a5b-0000-1000-8000-00805f9b34fb';
@@ -19,6 +20,7 @@ class EnduroBleManager {
   private targetDeviceId: string | null = null;
   private scanning = false;
   private destroyed = false;
+  private currentRideId: number | null = null;
 
   constructor() {
     this.manager = new BleManager();
@@ -89,6 +91,23 @@ class EnduroBleManager {
 
         const bytes = Uint8Array.from(atob(characteristic.value), c => c.charCodeAt(0));
         const { wheelCircumferenceMm } = useRideStore.getState();
+
+        // Decode the raw fields before parsing so we can log the decoded pair
+        // unconditionally. Null-update cases (first packet, zero time delta,
+        // power-cycle re-baseline) are exactly the sequences the firmware's
+        // edge-handling paths need to replay against. A log of only "good"
+        // notifications won't exercise those paths.
+        const hasWheelData = bytes.length >= 7 && (bytes[0] & 0x01) !== 0;
+        if (hasWheelData) {
+          const cumulativeRevs =
+            bytes[1] | (bytes[2] << 8) | (bytes[3] << 16) | (bytes[4] << 24);
+          const wheelEventTime = bytes[5] | (bytes[6] << 8);
+          const rideId = this.currentRideId;
+          if (rideId !== null) {
+            enqueueRawCscRow(rideId, Date.now(), cumulativeRevs, wheelEventTime);
+          }
+        }
+
         const { state, update } = parseCscNotification(bytes, this.cscState, wheelCircumferenceMm);
         this.cscState = state;
 
@@ -126,11 +145,16 @@ class EnduroBleManager {
     }, delay);
   }
 
+  setRideId(rideId: number | null): void {
+    this.currentRideId = rideId;
+  }
+
   resetDistance(): void {
     this.cumulativeDistanceMi = 0;
   }
 
   disconnect(): void {
+    flushRawCscQueue();
     this.targetDeviceId = null;
     this.speedSubscription?.remove();
     this.speedSubscription = null;

@@ -84,11 +84,12 @@ export function appendRideLog(
   rideId: number,
   timestamp: string,
   cumulativeDistance: number,
-  deviationSeconds: number
+  deviationSeconds: number,
+  source: 'live' | 'replay' = 'live'
 ): void {
   getDb().runSync(
-    'INSERT INTO ride_log (ride_id, timestamp, cumulative_distance, deviation_seconds) VALUES (?, ?, ?, ?)',
-    rideId, timestamp, cumulativeDistance, deviationSeconds
+    'INSERT INTO ride_log (ride_id, timestamp, cumulative_distance, deviation_seconds, source) VALUES (?, ?, ?, ?, ?)',
+    rideId, timestamp, cumulativeDistance, deviationSeconds, source
   );
 }
 
@@ -96,11 +97,69 @@ export interface RideLogRow {
   timestamp: string;
   cumulative_distance: number;
   deviation_seconds: number;
+  source: 'live' | 'replay';
 }
 
 export function getRideLog(rideId: number): RideLogRow[] {
   return getDb().getAllSync(
-    'SELECT timestamp, cumulative_distance, deviation_seconds FROM ride_log WHERE ride_id = ? ORDER BY id',
+    'SELECT timestamp, cumulative_distance, deviation_seconds, source FROM ride_log WHERE ride_id = ? ORDER BY id',
     rideId
   ) as RideLogRow[];
+}
+
+// Raw CSC log — one row per BLE notification regardless of whether it produced
+// a valid update. Null cases (first packet, zero time delta, power-cycle re-baseline)
+// are exactly what the firmware's edge-case paths need to replay against.
+
+const RAW_CSC_BATCH_SIZE = 50;
+const rawCscQueue: Array<{ rideId: number; wallClockMs: number; cumulativeRevs: number; wheelEventTime: number }> = [];
+let rawCscFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function enqueueRawCscRow(
+  rideId: number,
+  wallClockMs: number,
+  cumulativeRevs: number,
+  wheelEventTime: number
+): void {
+  rawCscQueue.push({ rideId, wallClockMs, cumulativeRevs, wheelEventTime });
+  if (rawCscQueue.length >= RAW_CSC_BATCH_SIZE) {
+    flushRawCscQueue();
+  } else if (!rawCscFlushTimer) {
+    rawCscFlushTimer = setTimeout(flushRawCscQueue, 10_000);
+  }
+}
+
+export function flushRawCscQueue(): void {
+  if (rawCscFlushTimer) {
+    clearTimeout(rawCscFlushTimer);
+    rawCscFlushTimer = null;
+  }
+  if (rawCscQueue.length === 0) return;
+  const rows = rawCscQueue.splice(0);
+  const db = getDb();
+  const stmt = db.prepareSync(
+    'INSERT INTO raw_csc_log (ride_id, wall_clock_ms, cumulative_revs, wheel_event_time) VALUES (?, ?, ?, ?)'
+  );
+  try {
+    db.withTransactionSync(() => {
+      for (const r of rows) {
+        stmt.executeSync(r.rideId, r.wallClockMs, r.cumulativeRevs, r.wheelEventTime);
+      }
+    });
+  } finally {
+    stmt.finalizeSync();
+  }
+}
+
+export interface RawCscRow {
+  wall_clock_ms: number;
+  cumulative_revs: number;
+  wheel_event_time: number;
+}
+
+export function getRawCscLog(rideId: number): RawCscRow[] {
+  return getDb().getAllSync(
+    'SELECT wall_clock_ms, cumulative_revs, wheel_event_time FROM raw_csc_log WHERE ride_id = ? ORDER BY id',
+    rideId
+  ) as RawCscRow[];
 }

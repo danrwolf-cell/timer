@@ -5,7 +5,8 @@ import type { RootStackParamList } from './types';
 import { useRideStore } from '../store/ride-store';
 import { SensorStatusBar } from '../components/SensorStatusBar';
 import { distanceToNextEvent, detectSegment } from '../engine/pace-engine';
-import { appendRideLog, insertRide } from '../db/queries';
+import { appendRideLog, insertRide, flushRawCscQueue } from '../db/queries';
+import { bleMgr } from '../ble/ble-manager';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'LiveRide'> };
 
@@ -30,6 +31,7 @@ export function LiveRideScreen({ navigation }: Props) {
         new Date(startTime).toISOString(),
         wheelCircumferenceMm
       );
+      bleMgr.setRideId(rideIdRef.current);
     }
 
     // Log deviation every 5s
@@ -46,6 +48,8 @@ export function LiveRideScreen({ navigation }: Props) {
 
     return () => {
       if (logTimerRef.current) clearInterval(logTimerRef.current);
+      flushRawCscQueue();
+      bleMgr.setRideId(null);
     };
   }, []);
 
