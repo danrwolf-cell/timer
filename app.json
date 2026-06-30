@@ -11,7 +11,9 @@
       "bundleIdentifier": "com.danwolf.enduro",
       "infoPlist": {
         "NSBluetoothAlwaysUsageDescription": "This app connects to your speed sensor and handlebar remote over Bluetooth to track your pace.",
-        "UIBackgroundModes": ["bluetooth-central"]
+        "UIBackgroundModes": [
+          "bluetooth-central"
+        ]
       }
     },
     "android": {
@@ -30,6 +32,9 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-sqlite"
+    ]
   }
 }
