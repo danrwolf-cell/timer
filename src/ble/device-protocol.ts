@@ -246,6 +246,55 @@ export function rideLogCrc(rows: RideLogRow[]): number {
   return crc16(bytes);
 }
 
+/**
+ * Reassembles a RIDE_LOG notification stream. Feed each notification's bytes
+ * to addPacket(); when it returns 'done', `rows` holds the complete log.
+ * Detects dropped notifications (seq gap), row-count mismatch, and CRC
+ * mismatch — any of which surface as 'error' with `error` set.
+ */
+export class RideLogAssembler {
+  readonly rows: RideLogRow[] = [];
+  error: string | null = null;
+  private expectedSeq = 0;
+  private finished = false;
+
+  addPacket(bytes: Uint8Array): 'pending' | 'done' | 'error' {
+    if (this.finished) return this.error ? 'error' : 'done';
+
+    let packet: RideLogPacket;
+    try {
+      packet = parseRideLogPacket(bytes);
+    } catch (e) {
+      return this.fail(e instanceof Error ? e.message : 'malformed packet');
+    }
+
+    if (packet.seq !== this.expectedSeq) {
+      return this.fail(`sequence gap: expected ${this.expectedSeq}, got ${packet.seq}`);
+    }
+    this.expectedSeq = (packet.seq + 1) & 0xff;
+
+    if (packet.kind === 'data') {
+      this.rows.push(...packet.rows);
+      return 'pending';
+    }
+
+    if (packet.totalRows !== this.rows.length) {
+      return this.fail(`row count mismatch: device sent ${packet.totalRows}, received ${this.rows.length}`);
+    }
+    if (packet.crc !== rideLogCrc(this.rows)) {
+      return this.fail('ride log CRC mismatch');
+    }
+    this.finished = true;
+    return 'done';
+  }
+
+  private fail(message: string): 'error' {
+    this.error = message;
+    this.finished = true;
+    return 'error';
+  }
+}
+
 // ---------------------------------------------------------------------------
 // DEVICE_STATUS
 

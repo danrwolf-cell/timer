@@ -98,7 +98,15 @@ export function RouteLibraryScreen({ navigation }: Props) {
               <Text style={styles.routeName}>{item.name}</Text>
               {item.event_date ? <Text style={styles.routeDate}>{item.event_date}</Text> : null}
             </View>
-            <Text style={styles.chevron}>›</Text>
+            <View style={styles.rowActions}>
+              <TouchableOpacity
+                style={styles.deviceButton}
+                onPress={() => navigation.navigate('Device', { routeId: item.id })}
+              >
+                <Text style={styles.deviceButtonText}>DEVICE</Text>
+              </TouchableOpacity>
+              <Text style={styles.chevron}>›</Text>
+            </View>
           </TouchableOpacity>
         )}
       />
@@ -212,6 +220,12 @@ const styles = StyleSheet.create({
   routeName: { color: C.text, fontSize: 18, fontWeight: '600' },
   routeDate: { color: C.muted, fontSize: 13, marginTop: 2 },
   chevron: { color: C.muted, fontSize: 24 },
+  rowActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  deviceButton: {
+    borderWidth: 1, borderColor: C.accent, borderRadius: 6,
+    paddingVertical: 4, paddingHorizontal: 10,
+  },
+  deviceButtonText: { color: C.accent, fontSize: 11, fontWeight: '800', letterSpacing: 1 },
   addButton: {
     margin: 20, padding: 16, backgroundColor: C.accent,
     borderRadius: 10, alignItems: 'center',

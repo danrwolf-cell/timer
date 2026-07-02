@@ -2,6 +2,7 @@ import type { Segment } from '../engine/pace-engine';
 import {
   chunkRouteSheet,
   crc16,
+  RideLogAssembler,
   packRouteSheet,
   packSetWheelCircumference,
   packSimpleControl,
@@ -188,6 +189,71 @@ describe('ride log stream', () => {
   it('rejects truncated packets', () => {
     expect(() => parseRideLogPacket(Uint8Array.from([0]))).toThrow(/short/);
     expect(() => parseRideLogPacket(Uint8Array.from([0, 2, 1, 2, 3]))).toThrow(/truncated/);
+  });
+});
+
+describe('RideLogAssembler', () => {
+  function dataPacket(seq: number, rows: Array<[number, number, number]>): Uint8Array {
+    const bytes = new Uint8Array(2 + rows.length * 10);
+    bytes[0] = seq;
+    bytes[1] = rows.length;
+    rows.forEach(([ms, revs, wet], i) => {
+      const o = 2 + i * 10;
+      bytes[o] = ms & 0xff; bytes[o + 1] = (ms >>> 8) & 0xff;
+      bytes[o + 2] = (ms >>> 16) & 0xff; bytes[o + 3] = (ms >>> 24) & 0xff;
+      bytes[o + 4] = revs & 0xff; bytes[o + 5] = (revs >>> 8) & 0xff;
+      bytes[o + 6] = (revs >>> 16) & 0xff; bytes[o + 7] = (revs >>> 24) & 0xff;
+      bytes[o + 8] = wet & 0xff; bytes[o + 9] = (wet >> 8) & 0xff;
+    });
+    return bytes;
+  }
+
+  function endPacket(seq: number, totalRows: number, crc: number): Uint8Array {
+    return Uint8Array.from([seq, 0, totalRows & 0xff, (totalRows >> 8) & 0xff, crc & 0xff, (crc >> 8) & 0xff]);
+  }
+
+  it('assembles a multi-packet stream and verifies the CRC', () => {
+    const assembler = new RideLogAssembler();
+    expect(assembler.addPacket(dataPacket(0, [[1000, 6, 1024]]))).toBe('pending');
+    expect(assembler.addPacket(dataPacket(1, [[2000, 12, 2048], [3000, 18, 3072]]))).toBe('pending');
+    const crc = crc16(Uint8Array.from([
+      ...dataPacket(0, [[1000, 6, 1024]]).subarray(2),
+      ...dataPacket(1, [[2000, 12, 2048], [3000, 18, 3072]]).subarray(2),
+    ]));
+    expect(assembler.addPacket(endPacket(2, 3, crc))).toBe('done');
+    expect(assembler.rows.length).toBe(3);
+    expect(assembler.error).toBeNull();
+  });
+
+  it('reports a sequence gap when a notification is dropped', () => {
+    const assembler = new RideLogAssembler();
+    expect(assembler.addPacket(dataPacket(0, [[1000, 6, 1024]]))).toBe('pending');
+    expect(assembler.addPacket(dataPacket(2, [[3000, 18, 3072]]))).toBe('error');
+    expect(assembler.error).toMatch(/sequence gap/);
+  });
+
+  it('reports a CRC mismatch on a corrupted stream', () => {
+    const assembler = new RideLogAssembler();
+    assembler.addPacket(dataPacket(0, [[1000, 6, 1024]]));
+    expect(assembler.addPacket(endPacket(1, 1, 0xbeef))).toBe('error');
+    expect(assembler.error).toMatch(/CRC/);
+  });
+
+  it('reports a row count mismatch', () => {
+    const assembler = new RideLogAssembler();
+    assembler.addPacket(dataPacket(0, [[1000, 6, 1024]]));
+    expect(assembler.addPacket(endPacket(1, 5, 0))).toBe('error');
+    expect(assembler.error).toMatch(/row count/);
+  });
+
+  it('handles seq wraparound at 255', () => {
+    const assembler = new RideLogAssembler();
+    // Fast-forward the internal seq by feeding 256 single-row packets
+    for (let i = 0; i < 256; i++) {
+      expect(assembler.addPacket(dataPacket(i & 0xff, [[i, i, i & 0xffff]]))).toBe('pending');
+    }
+    // Next expected seq wrapped to 0
+    expect(assembler.addPacket(dataPacket(0, [[999, 999, 999]]))).toBe('pending');
   });
 });
 

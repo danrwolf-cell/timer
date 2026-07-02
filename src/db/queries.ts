@@ -189,6 +189,24 @@ export interface RawCscRow {
   wheel_event_time: number;
 }
 
+/** Bulk insert for device ride-log imports (bypasses the live-capture queue). */
+export function insertRawCscRows(rideId: number, rows: RawCscRow[]): void {
+  if (rows.length === 0) return;
+  const db = getDb();
+  const stmt = db.prepareSync(
+    'INSERT INTO raw_csc_log (ride_id, wall_clock_ms, cumulative_revs, wheel_event_time) VALUES (?, ?, ?, ?)'
+  );
+  try {
+    db.withTransactionSync(() => {
+      for (const r of rows) {
+        stmt.executeSync(rideId, r.wall_clock_ms, r.cumulative_revs, r.wheel_event_time);
+      }
+    });
+  } finally {
+    stmt.finalizeSync();
+  }
+}
+
 export function getRawCscLog(rideId: number): RawCscRow[] {
   return getDb().getAllSync(
     'SELECT wall_clock_ms, cumulative_revs, wheel_event_time FROM raw_csc_log WHERE ride_id = ? ORDER BY id',
