@@ -19,8 +19,8 @@ VCOM, which the Adafruit_SharpMem library toggles on every refresh.
 |---|---|---|
 | VIN | 3V | Power (onboard boost makes the panel's 5 V) |
 | GND | GND | Ground |
-| SCK | SCK | SPI clock |
-| MOSI | MO | SPI data |
+| SCLK | SCK | SPI clock |
+| DI | MO | SPI data |
 | CS | 5 | Chip select (`SHARP_CS_PIN` in the sketch) |
 
 Notes:
