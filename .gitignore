@@ -39,3 +39,7 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# firmware host-test build outputs (vectors.h IS checked in)
+firmware/test/test_runner
+firmware/test/build-ts/

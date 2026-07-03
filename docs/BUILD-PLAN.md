@@ -9,13 +9,23 @@
 
 The phone app is the demo and the on-ramp, not the final product.
 
-The live ride ultimately runs on a dedicated **ESP32 + Sharp Memory LCD** handlebar unit: always-on, no battery anxiety, no lock-screen, no OS interruptions, readable in direct sun, survives mud. The phone becomes a companion: route-sheet entry, library and sharing, post-ride analytics, pushing sheets to the device over BLE and pulling back the ride log.
+The live ride ultimately runs on a dedicated **nRF52840 + Sharp Memory LCD** handlebar unit: always-on, no battery anxiety, no lock-screen, no OS interruptions, readable in direct sun, survives mud. The phone becomes a companion: route-sheet entry, library and sharing, post-ride analytics, pushing sheets to the device over BLE and pulling back the ride log.
 
-The Sharp Memory LCD (e.g., LS013B7DH03, 128×128, or LS027B7DH01, 400×240) is specifically chosen over e-ink because refresh is fast enough for a live number that changes every second. E-ink is not suitable.
+> **Hardware decision (July 2026, parts in hand):** the prototype MCU is the
+> **Adafruit Feather nRF52840 Express**, not the ESP32-S3 originally sketched.
+> The workload is BLE-first (dual-role: central to the sensor, peripheral to
+> the phone) and the nRF52840 is the stronger BLE part: mature Bluefruit
+> dual-role support, far better battery behavior, built-in LiPo charging on
+> the Feather. Nothing product-level is lost — the golden-reference C core is
+> platform-independent either way. The display is the **Adafruit 4694**
+> breakout (LS027B7DH01, 2.7", 400×240) with onboard boost + level shifting.
+> Wiring and bring-up: `docs/HARDWARE.md`.
+
+The Sharp Memory LCD is specifically chosen over e-ink because refresh is fast enough for a live number that changes every second. E-ink is not suitable.
 
 This strategy has two practical consequences for how the phone code is written right now:
 
-1. **The engine and parser are the golden reference.** `pace-engine.ts` and `csc-parser.ts` are pure functions with no platform dependencies. They stay that way permanently. The C firmware on the ESP32 gets validated against the TypeScript unit tests — same inputs, same outputs. Do not add side effects, timers, or RN imports to these files.
+1. **The engine and parser are the golden reference.** `pace-engine.ts` and `csc-parser.ts` are pure functions with no platform dependencies. They stay that way permanently. The C firmware gets validated against the TypeScript unit tests — same inputs, same outputs. Do not add side effects, timers, or RN imports to these files. *(Implemented: `firmware/core` is the C port; `firmware/test` generates vectors from the TS modules and validates the port host-side — `make -C firmware/test`.)*
 
 2. **The phone live-screen is deliberately lean and partially throwaway.** It needs to be correct and testable, not polished. Time spent on live-screen animation, haptics, and gesture refinement before the ESP32 path is validated is mostly wasted. Build it to the point where you can ride with it and trust the numbers. Stop there until the hardware path is proven.
 
@@ -45,7 +55,9 @@ The phone live-screen is a functional demo and a validation harness, not a shipp
 
 ## Current codebase state (as of this writing)
 
-Tests: 84/84 passing.
+Tests: 109/109 passing (`npx jest`), plus the firmware host-side vector suite
+(`make -C firmware/test`, 1418 checks) validating the C port against the TS
+golden reference.
 
 | File | Status |
 |---|---|
@@ -108,9 +120,16 @@ These are separate tasks from 4a. 4a can be closed with a unit test. 4b can only
 
 ---
 
-## Phone ↔ ESP32 BLE boundary (sketch)
+## Phone ↔ device BLE boundary
 
-The ESP32 exposes a custom GATT service. The phone connects as central during setup and post-ride; the ESP32 connects to the speed sensor as central during the ride.
+**Status: defined and implemented on both sides.** The authoritative wire
+format lives in `docs/BLE-PROTOCOL.md` (version byte + CRC-16, chunked
+route-sheet transfer, seq/CRC-verified ride-log stream) with matching codecs
+in `src/ble/device-protocol.ts` (TS, unit-tested) and
+`firmware/core/route_sheet.c` (C, byte-validated against TS vectors). The
+sketch below is the original design note.
+
+The device exposes a custom GATT service. The phone connects as central during setup and post-ride; the device connects to the speed sensor as central during the ride.
 
 **Service: Enduro Companion (`custom UUID`)**
 
@@ -162,16 +181,20 @@ Goal: a working app you can ride with that produces trustworthy numbers and a ra
 - [ ] Transfer section time allowances (vs. fully free)
 - [ ] Free-territory UI: zone overlay in route builder, live "check possible" state on live screen (`free-territory.ts` is built and fully tested — no UI surface yet)
 
-### Phase 3 — ESP32 bring-up
+### Phase 3 — Device bring-up (Feather nRF52840)
 
-- [ ] ESP32 + Sharp Memory LCD hardware selection and board bringup (ESP32-S3 preferred; LCD model TBD on enclosure size)
-- [ ] Sharp Memory LCD draw spec: 1-bit layout, signed-seconds hero digit, ON TIME hero text, time-format scaling, per-check DQ states with max_late_seconds
-- [ ] C port of pace engine, validated against TS unit test vectors
-- [ ] C CSC parser, validated against TS unit test vectors
-- [ ] Custom GATT service (ROUTE_SHEET, RIDE_LOG, DEVICE_STATUS, CONTROL)
-- [ ] Phone companion BLE connection to ESP32
-- [ ] Route push (phone → device)
-- [ ] Ride log pull (device → phone), post-hoc replay validation
+- [x] Hardware selection: Feather nRF52840 Express + Adafruit 4694 (parts in hand; see `docs/HARDWARE.md`)
+- [x] C port of pace engine, validated against TS unit test vectors (`firmware/core/pace_engine.c`)
+- [x] C CSC parser, validated against TS unit test vectors (`firmware/core/csc_parser.c`)
+- [x] Custom GATT service (ROUTE_SHEET, RIDE_LOG, DEVICE_STATUS, CONTROL) — `docs/BLE-PROTOCOL.md`, both codecs cross-validated
+- [x] Firmware sketch: display renderer, dual-role BLE, flash route persistence, RAM ride log (`firmware/enduro-feather`)
+- [x] Phone companion BLE connection to the device (`src/ble/device-manager.ts`, DeviceScreen)
+- [x] Route push (phone → device)
+- [x] Ride log pull (device → phone) → raw_csc_log → replay validation path
+- [ ] Board bring-up on the physical hardware (flash, wire, run the `docs/HARDWARE.md` checklist) ← **you are here**
+- [ ] Field cross-validation: ride, pull the log, compare live-displayed deviation to phone replay
+- [ ] Sharp Memory LCD draw spec round 2: per-check DQ states with max_late_seconds, time-format polish (current renderer is functional)
+- [ ] Ride log to QSPI flash (survives power-off; RAM-only today, ~2 h at 1 Hz)
 
 ### Phase 4 — Hardware polish
 
@@ -189,6 +212,8 @@ Goal: a working app you can ride with that produces trustworthy numbers and a ra
 
 2. **iOS backgrounding behavior.** Prototype this before riding with the app. See Priority 4 above.
 
-3. **ESP32 hardware selection.** ESP32-S3 preferred (more RAM, USB, BLE 5.0). Sharp Memory LCD model depends on enclosure size. This is a Phase 3 decision but the SPI wiring affects PCB layout early.
+3. ~~**ESP32 hardware selection.**~~ **Resolved:** Feather nRF52840 Express + Adafruit 4694 (2.7" 400×240). See the hardware decision note at the top and `docs/HARDWARE.md`.
 
-4. **Route sheet serialization format for BLE transfer.** The packed binary sketch above is fine for a start but needs a version byte and a checksum. Define before implementing ROUTE_SHEET characteristic.
+4. ~~**Route sheet serialization format for BLE transfer.**~~ **Resolved:** `docs/BLE-PROTOCOL.md` — version byte, CRC-16/CCITT-FALSE, chunked transfer framing, implemented and cross-validated in TS and C.
+
+5. **Reset semantics.** Both the phone store and the firmware zero the displayed deviation for the update that crosses a reset checkpoint, then resume computing from full key time — there is no re-anchoring. If a reset should re-anchor the key time, that change must land in the TS golden reference (and its tests) first, then propagate to the C port via regenerated vectors.

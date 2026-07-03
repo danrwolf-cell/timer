@@ -1,4 +1,5 @@
 import { BleManager, Device, Subscription, BleError, State } from 'react-native-ble-plx';
+import { bleInstance } from './ble-instance';
 import { parseCscNotification, type CscState } from './csc-parser';
 import { useRideStore } from '../store/ride-store';
 import { enqueueRawCscRow, flushRawCscQueue } from '../db/queries';
@@ -23,7 +24,7 @@ class EnduroBleManager {
   private currentRideId: number | null = null;
 
   constructor() {
-    this.manager = new BleManager();
+    this.manager = bleInstance;
   }
 
   // Start scanning for CSC sensors. Resolves with the connected device.
