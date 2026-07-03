@@ -21,10 +21,17 @@ VCOM, which the Adafruit_SharpMem library toggles on every refresh.
 | GND | GND | Ground |
 | SCK | SCK | SPI clock |
 | MOSI | MO | SPI data |
-| CS | D5 | Chip select (`SHARP_CS_PIN` in the sketch) |
+| CS | 5 | Chip select (`SHARP_CS_PIN` in the sketch) |
 
 Notes:
 
+- The Feather nRF52840 Express silkscreens its digital pins as bare numbers
+  (`5`, `6`, `9`, `10`, `11`, `12`, `13`) — there's no "D" prefix printed on
+  the board, unlike some other Arduino-family boards. Pin `5` sits on the
+  header row with SCK/MOSI/MISO/RX/TX, opposite the battery/EN side. If you
+  don't see a pad labeled `5` there, tell me what labels you *do* see on
+  that row and I'll adjust — you may have the Sense variant, which reuses
+  some pins for onboard sensors.
 - Both boards ship with headers loose in the bag — solder them on before
   breadboarding. Female-female jumpers can also go pin-to-pin without the
   breadboard once headers are on.
@@ -41,7 +48,7 @@ reset button to enter the UF2 bootloader.
 ## Bring-up checklist
 
 1. **Display**: on boot the panel shows `NO ROUTE` with the sensor status
-   header. If it's blank, check CS on D5 and that VIN is on 3V (not EN).
+   header. If it's blank, check CS on pin `5` and that VIN is on 3V (not EN).
 2. **Phone → device**: open a route in the app → DEVICE → Scan for Device.
    It appears as `Enduro-XXXX`. Push the route; the display switches to
    `READY` with the segment count.
