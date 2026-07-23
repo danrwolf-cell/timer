@@ -539,6 +539,16 @@ void setup() {
     }
   }
 
+#define ENDURO_DEBUG_HALT_AFTER_FS 1
+#if ENDURO_DEBUG_HALT_AFTER_FS
+  // Correct init order (Bluefruit before InternalFS) confirmed working
+  // with single-role. Never actually retested dual-role (1, 1) with the
+  // correct order — testing that specifically now, before any GATT
+  // service/characteristic setup.
+  render();
+  while (1) { delay(1000); }
+#endif
+
   char name[16];
   snprintf(name, sizeof(name), "Enduro-%04X",
            (unsigned)(NRF_FICR->DEVICEID[0] & 0xFFFF));
