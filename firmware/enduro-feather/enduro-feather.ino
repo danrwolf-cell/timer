@@ -40,7 +40,7 @@ using namespace Adafruit_LittleFS_Namespace;
 // Temporary bring-up flag: set to 1 to skip all Bluefruit/BLE init and test
 // whether the display + serial path boots stably on its own. Leave at 0 for
 // normal builds — remove this flag once bring-up is done.
-#define ENDURO_DEBUG_SKIP_BLE 0
+#define ENDURO_DEBUG_SKIP_BLE 1
 
 // ---------------------------------------------------------------------------
 // Display — Adafruit 4694 breakout on hardware SPI. See docs/HARDWARE.md.
@@ -544,26 +544,20 @@ void setup() {
   display.clearDisplay();
   Serial.println("checkpoint: display cleared");
 
-#if ENDURO_DEBUG_SKIP_BLE
-  // Confirm the fixed readBatteryPct() (no analogReference/Resolution
-  // switching) doesn't fault.
-  Serial.println("checkpoint: fixed readBatteryPct test (debug minimal)");
-  uint8_t battTest = readBatteryPct();
-  Serial.print("checkpoint: readBatteryPct returned ");
-  Serial.println(battTest);
-  display.clearDisplayBuffer();
-  display.setTextColor(0);
-  display.setTextWrap(false);
-  drawCentered("NO ROUTE", 100, 4);
-  drawCentered("push a sheet from the phone", 150, 2);
-  display.refresh();
-  Serial.println("checkpoint: refresh() returned (debug minimal)");
-  while (1) { delay(1000); }  // halt here — don't touch FS or BLE at all
-#endif
-
+  // bleuart stock example proved Bluefruit/SoftDevice/bootloader are fine
+  // on this exact board. InternalFS was never tested in isolation before
+  // (earlier debug tests halted before reaching it) — test it now, still
+  // with BLE fully untouched.
   InternalFS.begin();
   loadPersistedRoute();
   Serial.println("checkpoint: fs + route load done");
+
+#if ENDURO_DEBUG_SKIP_BLE
+  Serial.println("checkpoint: rendering after InternalFS (debug minimal)");
+  render();
+  Serial.println("checkpoint: render() returned (debug minimal)");
+  while (1) { delay(1000); }  // halt here — don't touch BLE at all
+#endif
 
 #if !ENDURO_DEBUG_SKIP_BLE
   // Bisect test: dual-role (1 peripheral + 1 central) faults even bare.
