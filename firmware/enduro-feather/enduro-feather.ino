@@ -446,7 +446,7 @@ static void drawCentered(const char *text, int16_t y, uint8_t size) {
 
 static void render() {
   display.clearDisplayBuffer();
-  display.setTextColor(BLACK);
+  display.setTextColor(0);  // Adafruit_SharpMem: 0 = black
   display.setTextWrap(false);
 
   char line[48];
