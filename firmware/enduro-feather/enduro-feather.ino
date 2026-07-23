@@ -445,6 +445,7 @@ static void drawCentered(const char *text, int16_t y, uint8_t size) {
 }
 
 static void render() {
+  Serial.println("checkpoint: render() start");
   display.clearDisplayBuffer();
   display.setTextColor(0);  // Adafruit_SharpMem: 0 = black
   display.setTextWrap(false);
@@ -468,9 +469,12 @@ static void render() {
   }
 
   if (!routeLoaded) {
+    Serial.println("checkpoint: drawing NO ROUTE");
     drawCentered("NO ROUTE", 100, 4);
     drawCentered("push a sheet from the phone", 150, 2);
+    Serial.println("checkpoint: calling display.refresh()");
     display.refresh();
+    Serial.println("checkpoint: refresh() returned");
     return;
   }
 
@@ -526,15 +530,20 @@ static void render() {
 
 void setup() {
   Serial.begin(115200);
+  delay(2000);
+  Serial.println("checkpoint: serial up");
 
   display.begin();
   display.clearDisplay();
+  Serial.println("checkpoint: display cleared");
 
   InternalFS.begin();
   loadPersistedRoute();
+  Serial.println("checkpoint: fs + route load done");
 
   Bluefruit.begin(1 /* peripheral */, 1 /* central */);
   Bluefruit.setTxPower(4);
+  Serial.println("checkpoint: bluefruit begin done");
 
   char name[16];
   snprintf(name, sizeof(name), "Enduro-%04X",
@@ -592,8 +601,10 @@ void setup() {
   Bluefruit.Advertising.setInterval(32, 244);
   Bluefruit.Advertising.setFastTimeout(30);
   Bluefruit.Advertising.start(0);
+  Serial.println("checkpoint: advertising started, calling render()");
 
   render();
+  Serial.println("checkpoint: render() returned");
 }
 
 void loop() {
