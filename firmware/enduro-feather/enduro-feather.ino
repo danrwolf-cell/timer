@@ -544,18 +544,16 @@ void setup() {
   Serial.println("checkpoint: display cleared");
 
 #if ENDURO_DEBUG_SKIP_BLE
-  // Bare-minimum draw, bypassing render()/drawCentered()/getTextBounds()
-  // entirely — identical calls to the standalone test sketch that was
-  // confirmed working on this exact wiring. If this doesn't show up
-  // either, the problem isn't in render()'s extra logic.
-  Serial.println("checkpoint: bare draw test (debug minimal)");
+  // Bare draw worked. Now test drawCentered()/getTextBounds() specifically,
+  // without readBatteryPct() in the mix.
+  Serial.println("checkpoint: drawCentered test (debug minimal)");
   display.clearDisplayBuffer();
   display.setTextColor(0);
-  display.setTextSize(2);
-  display.setCursor(10, 10);
-  display.print("BARE TEST");
+  display.setTextWrap(false);
+  drawCentered("NO ROUTE", 100, 4);
+  drawCentered("push a sheet from the phone", 150, 2);
   display.refresh();
-  Serial.println("checkpoint: bare draw refresh() returned (debug minimal)");
+  Serial.println("checkpoint: drawCentered refresh() returned (debug minimal)");
   while (1) { delay(1000); }  // halt here — don't touch FS or BLE at all
 #endif
 
