@@ -37,12 +37,6 @@ extern "C" {
 using namespace Adafruit_LittleFS_Namespace;
 
 // ---------------------------------------------------------------------------
-// Temporary bring-up flag: set to 1 to skip all Bluefruit/BLE init and test
-// whether the display + serial path boots stably on its own. Leave at 0 for
-// normal builds — remove this flag once bring-up is done.
-#define ENDURO_DEBUG_SKIP_BLE 1
-
-// ---------------------------------------------------------------------------
 // Display — Adafruit 4694 breakout on hardware SPI. See docs/HARDWARE.md.
 
 #define SHARP_CS_PIN 5
@@ -137,33 +131,11 @@ static void adoptRoute(const rs_route_t *decoded) {
   segmentIndex = 0;
 }
 
-static void persistRoute(const uint8_t *payload, uint16_t len) {
-  InternalFS.remove(ROUTE_FILE);
-  File f(InternalFS);
-  if (f.open(ROUTE_FILE, FILE_O_WRITE)) {
-    f.write(payload, len);
-    f.close();
-  }
-}
-
-static void loadPersistedRoute() {
-  // A File object that's destructed after a failed open() hard-faults on
-  // this board — check existence first so we never construct one that
-  // could go out of scope unopened.
-  if (!InternalFS.exists(ROUTE_FILE)) return;
-  File f(InternalFS);
-  if (!f.open(ROUTE_FILE, FILE_O_READ)) return;
-  uint32_t len = f.size();
-  if (len > 0 && len <= XFER_MAX) {
-    static uint8_t buf[XFER_MAX];
-    f.read(buf, len);
-    rs_route_t decoded;
-    if (rs_decode_route_sheet(buf, len, &decoded) == RS_OK) {
-      adoptRoute(&decoded);
-    }
-  }
-  f.close();
-}
+// Route persistence (load in setup(), save in loop()) is inlined at its
+// call sites rather than factored into functions — on this board, merely
+// calling a function containing a local File object hard-faults, even
+// along a path that never touches it (e.g. an early return before the
+// File is constructed). Isolated via progressive bring-up tests.
 
 // ---------------------------------------------------------------------------
 // Pace math (display-side). Deviation is recomputed from elapsed time and
@@ -456,7 +428,6 @@ static void drawCentered(const char *text, int16_t y, uint8_t size) {
 }
 
 static void render() {
-  Serial.println("checkpoint: render() start");
   display.clearDisplayBuffer();
   display.setTextColor(0);  // Adafruit_SharpMem: 0 = black
   display.setTextWrap(false);
@@ -480,12 +451,9 @@ static void render() {
   }
 
   if (!routeLoaded) {
-    Serial.println("checkpoint: drawing NO ROUTE");
     drawCentered("NO ROUTE", 100, 4);
     drawCentered("push a sheet from the phone", 150, 2);
-    Serial.println("checkpoint: calling display.refresh()");
     display.refresh();
-    Serial.println("checkpoint: refresh() returned");
     return;
   }
 
@@ -541,57 +509,32 @@ static void render() {
 
 void setup() {
   Serial.begin(115200);
-  delay(2000);
-  Serial.println("checkpoint: serial up");
 
   display.begin();
   display.clearDisplay();
-  Serial.println("checkpoint: display cleared");
 
-  // Filesystem format didn't fix the blank screen — bisect further.
-  // Test InternalFS.begin() ALONE first, before loadPersistedRoute()
-  // (which reads a file and calls into our route_sheet C decoder).
   InternalFS.begin();
-  Serial.println("checkpoint: InternalFS.begin() returned");
 
-#if ENDURO_DEBUG_SKIP_BLE
-  // Same timing/display sequence as the failing test, but inlined instead
-  // of calling loadPersistedRoute() as a separate function — isolates
-  // whether the function-call boundary itself is implicated, independent
-  // of timing relative to the prior display refresh.
-  display.clearDisplayBuffer();
-  display.setTextColor(0);
-  display.setTextWrap(false);
-  drawCentered("BEFORE CALL", 60, 3);
-  display.refresh();
-  delay(1500);
+  // Load a persisted route, if any. Inlined rather than factored into a
+  // function — see the note above adoptRoute().
   if (InternalFS.exists(ROUTE_FILE)) {
-    // won't run — exists() confirmed false — kept for parity with the fn
+    File f(InternalFS);
+    if (f.open(ROUTE_FILE, FILE_O_READ)) {
+      uint32_t len = f.size();
+      if (len > 0 && len <= XFER_MAX) {
+        static uint8_t routeReadBuf[XFER_MAX];
+        f.read(routeReadBuf, len);
+        rs_route_t decoded;
+        if (rs_decode_route_sheet(routeReadBuf, len, &decoded) == RS_OK) {
+          adoptRoute(&decoded);
+        }
+      }
+      f.close();
+    }
   }
-  display.clearDisplayBuffer();
-  drawCentered("AFTER CALL OK", 60, 3);
-  display.refresh();
-  while (1) { delay(1000); }  // halt here — don't touch BLE
-#endif
 
-  loadPersistedRoute();
-  Serial.println("checkpoint: fs + route load done");
-
-#if !ENDURO_DEBUG_SKIP_BLE
-  // Bisect test: dual-role (1 peripheral + 1 central) faults even bare.
-  // Testing peripheral-only role to check if dual-role RAM reservation
-  // is the problem.
-  Bluefruit.begin(1 /* peripheral */, 0 /* central */);
-
-#define ENDURO_DEBUG_HALT_AFTER_BLUEFRUIT_BEGIN 1
-#if ENDURO_DEBUG_HALT_AFTER_BLUEFRUIT_BEGIN
-  Serial.println("checkpoint: bisect - halting after peripheral-only Bluefruit.begin()");
-  render();
-  while (1) { delay(1000); }
-#endif
-
+  Bluefruit.begin(1 /* peripheral */, 1 /* central */);
   Bluefruit.setTxPower(4);
-  Serial.println("checkpoint: bluefruit begin done");
 
   char name[16];
   snprintf(name, sizeof(name), "Enduro-%04X",
@@ -649,22 +592,8 @@ void setup() {
   Bluefruit.Advertising.setInterval(32, 244);
   Bluefruit.Advertising.setFastTimeout(30);
   Bluefruit.Advertising.start(0);
-  Serial.println("checkpoint: advertising started, calling render()");
-#else
-  Serial.println("checkpoint: BLE skipped for debug");
-#endif
 
   render();
-  Serial.println("checkpoint: render() returned");
-
-#define ENDURO_DEBUG_HALT_AFTER_SETUP 1
-#if ENDURO_DEBUG_HALT_AFTER_SETUP
-  // Temporary: halt here so loop() never runs. The Sharp display is
-  // bistable, so if the screen shows content and it stays, setup()
-  // (including full Bluefruit init) completed cleanly and the fault is
-  // in loop(). If it's still blank, the fault is earlier in setup().
-  while (1) { delay(1000); }
-#endif
 }
 
 void loop() {
@@ -674,7 +603,12 @@ void loop() {
 
   if (routePersistPending) {
     routePersistPending = false;
-    persistRoute(xferBuf, routePersistLen);
+    InternalFS.remove(ROUTE_FILE);
+    File f(InternalFS);
+    if (f.open(ROUTE_FILE, FILE_O_WRITE)) {
+      f.write(xferBuf, routePersistLen);
+      f.close();
+    }
   }
 
   if (logStreamRequested) {
