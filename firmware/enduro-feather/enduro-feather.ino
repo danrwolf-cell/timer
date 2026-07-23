@@ -544,14 +544,18 @@ void setup() {
   Serial.println("checkpoint: display cleared");
 
 #if ENDURO_DEBUG_SKIP_BLE
-  // Minimal isolation test: render immediately, skip filesystem + BLE
-  // entirely, so nothing after this can crash and corrupt the result.
-  // The Sharp Memory LCD is bistable (its own SRAM holds the image), so
-  // whatever shows after this render() call will persist even if
-  // something later crashes the MCU.
-  Serial.println("checkpoint: calling render() immediately (debug minimal)");
-  render();
-  Serial.println("checkpoint: render() returned (debug minimal)");
+  // Bare-minimum draw, bypassing render()/drawCentered()/getTextBounds()
+  // entirely — identical calls to the standalone test sketch that was
+  // confirmed working on this exact wiring. If this doesn't show up
+  // either, the problem isn't in render()'s extra logic.
+  Serial.println("checkpoint: bare draw test (debug minimal)");
+  display.clearDisplayBuffer();
+  display.setTextColor(0);
+  display.setTextSize(2);
+  display.setCursor(10, 10);
+  display.print("BARE TEST");
+  display.refresh();
+  Serial.println("checkpoint: bare draw refresh() returned (debug minimal)");
   while (1) { delay(1000); }  // halt here — don't touch FS or BLE at all
 #endif
 
