@@ -633,6 +633,15 @@ void setup() {
 
   render();
   Serial.println("checkpoint: render() returned");
+
+#define ENDURO_DEBUG_HALT_AFTER_SETUP 1
+#if ENDURO_DEBUG_HALT_AFTER_SETUP
+  // Temporary: halt here so loop() never runs. The Sharp display is
+  // bistable, so if the screen shows content and it stays, setup()
+  // (including full Bluefruit init) completed cleanly and the fault is
+  // in loop(). If it's still blank, the fault is earlier in setup().
+  while (1) { delay(1000); }
+#endif
 }
 
 void loop() {
