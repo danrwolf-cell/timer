@@ -90,7 +90,10 @@ static volatile uint8_t sensorStatus = RS_SENSOR_DISCONNECTED;
 static uint32_t resetFlashUntilMs = 0;
 
 // Ride log: RAM buffer, ~2 h at 1 Hz. 10 bytes/row on the wire, 12 in RAM.
-#define RIDE_LOG_CAPACITY 7200
+// TEMP for bring-up: shrunk from 7200 to test whether dual-role BLE is
+// failing because the SoftDevice needs more RAM than the linker reserved,
+// and our large static buffer is crowding that space. Restore after test.
+#define RIDE_LOG_CAPACITY 10
 static rs_log_row_t rideLog[RIDE_LOG_CAPACITY];
 static volatile uint32_t rideLogCount = 0;
 static volatile bool rideLogOverflowed = false;
