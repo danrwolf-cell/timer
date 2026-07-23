@@ -442,11 +442,11 @@ static void formatDeviation(double dev, bool resetFlash, char *out, size_t cap) 
 }
 
 static void drawCentered(const char *text, int16_t y, uint8_t size) {
-  int16_t x1, y1;
-  uint16_t w, h;
+  // Built-in GFX font is a fixed 6x8 cell per size-1 unit — compute width
+  // directly instead of getTextBounds(), which hard-faults on this board.
+  int16_t w = (int16_t)strlen(text) * 6 * (int16_t)size;
   display.setTextSize(size);
-  display.getTextBounds(text, 0, y, &x1, &y1, &w, &h);
-  display.setCursor((DISPLAY_W - (int16_t)w) / 2, y);
+  display.setCursor((DISPLAY_W - w) / 2, y);
   display.print(text);
 }
 
