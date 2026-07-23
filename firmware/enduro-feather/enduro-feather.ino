@@ -533,15 +533,14 @@ void setup() {
     }
   }
 
-  Bluefruit.begin(1 /* peripheral */, 1 /* central */);
+  // Retesting single-role now that InternalFS is genuinely fixed — the
+  // earlier peripheral-only test still had the buggy loadPersistedRoute()
+  // running first, so it never actually validated role config.
+  Bluefruit.begin(1 /* peripheral */, 0 /* central */);
   Bluefruit.setTxPower(4);
 
 #define ENDURO_DEBUG_HALT_AFTER_BLUEFRUIT_BEGIN 1
 #if ENDURO_DEBUG_HALT_AFTER_BLUEFRUIT_BEGIN
-  // Every earlier Bluefruit test still had the OLD buggy loadPersistedRoute()
-  // function call running first, so those failures were never really about
-  // Bluefruit's role config. This is the first test of Bluefruit.begin()
-  // together with the now-fixed (inlined) InternalFS route load.
   render();
   while (1) { delay(1000); }
 #endif
