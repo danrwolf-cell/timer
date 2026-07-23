@@ -513,20 +513,31 @@ void setup() {
   display.begin();
   display.clearDisplay();
 
-  // Confirmed: InternalFS.begin() + Bluefruit.begin() together fault,
-  // each alone is fine. Testing reordered — Bluefruit first, then
-  // InternalFS — since flash access is supposed to route through the
-  // SoftDevice once it's active, which may resolve the conflict.
-  Bluefruit.begin(1 /* peripheral */, 0 /* central */);
+  // InternalFS.begin() must come after Bluefruit.begin() on this board —
+  // calling it first hard-faults once the SoftDevice touches flash.
+  // Isolated via progressive bring-up tests.
+  Bluefruit.begin(1 /* peripheral */, 1 /* central */);
   Bluefruit.setTxPower(4);
 
   InternalFS.begin();
 
-#define ENDURO_DEBUG_HALT_AFTER_BLUEFRUIT_BEGIN 1
-#if ENDURO_DEBUG_HALT_AFTER_BLUEFRUIT_BEGIN
-  render();
-  while (1) { delay(1000); }
-#endif
+  // Load a persisted route, if any. Inlined rather than factored into a
+  // function — see the note above adoptRoute().
+  if (InternalFS.exists(ROUTE_FILE)) {
+    File f(InternalFS);
+    if (f.open(ROUTE_FILE, FILE_O_READ)) {
+      uint32_t len = f.size();
+      if (len > 0 && len <= XFER_MAX) {
+        static uint8_t routeReadBuf[XFER_MAX];
+        f.read(routeReadBuf, len);
+        rs_route_t decoded;
+        if (rs_decode_route_sheet(routeReadBuf, len, &decoded) == RS_OK) {
+          adoptRoute(&decoded);
+        }
+      }
+      f.close();
+    }
+  }
 
   char name[16];
   snprintf(name, sizeof(name), "Enduro-%04X",
