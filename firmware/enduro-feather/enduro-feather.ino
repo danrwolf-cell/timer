@@ -513,29 +513,10 @@ void setup() {
   display.begin();
   display.clearDisplay();
 
-  InternalFS.begin();
-
-  // Load a persisted route, if any. Inlined rather than factored into a
-  // function — see the note above adoptRoute().
-  if (InternalFS.exists(ROUTE_FILE)) {
-    File f(InternalFS);
-    if (f.open(ROUTE_FILE, FILE_O_READ)) {
-      uint32_t len = f.size();
-      if (len > 0 && len <= XFER_MAX) {
-        static uint8_t routeReadBuf[XFER_MAX];
-        f.read(routeReadBuf, len);
-        rs_route_t decoded;
-        if (rs_decode_route_sheet(routeReadBuf, len, &decoded) == RS_OK) {
-          adoptRoute(&decoded);
-        }
-      }
-      f.close();
-    }
-  }
-
-  // Retesting single-role now that InternalFS is genuinely fixed — the
-  // earlier peripheral-only test still had the buggy loadPersistedRoute()
-  // running first, so it never actually validated role config.
+  // InternalFS.begin() skipped for this test — isolating whether it's
+  // specifically InternalFS+Bluefruit interacting, or something else
+  // about our sketch's memory footprint (large static buffers) that the
+  // working bleuart example doesn't have.
   Bluefruit.begin(1 /* peripheral */, 0 /* central */);
   Bluefruit.setTxPower(4);
 
