@@ -555,13 +555,12 @@ void setup() {
   Serial.println("checkpoint: InternalFS.begin() returned");
 
 #if ENDURO_DEBUG_SKIP_BLE
-  // Manual inline replica of loadPersistedRoute() worked. Now call the
-  // ACTUAL function — the one difference is that it returns early or
-  // falls out of scope, destructing its local File object, which the
-  // inline test never did (we halted before scope exit).
-  Serial.println("checkpoint: calling real loadPersistedRoute() (debug minimal)");
-  loadPersistedRoute();
-  Serial.println("checkpoint: loadPersistedRoute() returned (debug minimal)");
+  // exists() guard didn't fix it — test InternalFS.exists() itself in
+  // isolation, since that's the very first new call this fix introduced.
+  Serial.println("checkpoint: calling InternalFS.exists() (debug minimal)");
+  bool routeExists = InternalFS.exists(ROUTE_FILE);
+  Serial.print("checkpoint: exists() returned ");
+  Serial.println(routeExists ? "true" : "false");
   render();
   Serial.println("checkpoint: render() returned (debug minimal)");
   while (1) { delay(1000); }  // halt here — don't touch BLE
