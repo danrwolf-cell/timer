@@ -408,10 +408,11 @@ static void streamRideLog() {
 // Battery (Feather nRF52840: VBAT through a 1/2 divider on PIN_VBAT)
 
 static uint8_t readBatteryPct() {
-  analogReference(AR_INTERNAL_3_0);
-  analogReadResolution(12);
-  float vbat = analogRead(PIN_VBAT) * 2.0f * 3.0f / 4096.0f;
-  analogReference(AR_DEFAULT);
+  // analogReference(AR_INTERNAL_3_0) hard-faulted on this board — stick to
+  // the ADC's default reference (~3.6V) and default 10-bit resolution
+  // instead of switching them. Battery % is a nice-to-have, not precision
+  // critical.
+  float vbat = analogRead(PIN_VBAT) * 2.0f * 3.6f / 1024.0f;
   if (vbat < 2.5f) return RS_BATTERY_UNKNOWN;  // no LiPo attached
   float pct = (vbat - 3.3f) / (4.2f - 3.3f) * 100.0f;
   if (pct < 0) pct = 0;
@@ -544,12 +545,12 @@ void setup() {
   Serial.println("checkpoint: display cleared");
 
 #if ENDURO_DEBUG_SKIP_BLE
-  // readBatteryPct() faulted. Narrow further: bare analogRead(PIN_VBAT)
-  // with no reference/resolution switching first.
-  Serial.println("checkpoint: bare analogRead test (debug minimal)");
-  int vbatRaw = analogRead(PIN_VBAT);
-  Serial.print("checkpoint: analogRead(PIN_VBAT) returned ");
-  Serial.println(vbatRaw);
+  // Confirm the fixed readBatteryPct() (no analogReference/Resolution
+  // switching) doesn't fault.
+  Serial.println("checkpoint: fixed readBatteryPct test (debug minimal)");
+  uint8_t battTest = readBatteryPct();
+  Serial.print("checkpoint: readBatteryPct returned ");
+  Serial.println(battTest);
   display.clearDisplayBuffer();
   display.setTextColor(0);
   display.setTextWrap(false);
