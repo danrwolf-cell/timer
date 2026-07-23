@@ -72,3 +72,38 @@ reset button to enter the UF2 bootloader.
   remote (Priority 3) arrives as a second central connection later.
 - The panel is unmounted bare electronics: keep it dry; enclosure is
   Phase 4.
+
+## Bring-up findings (first unit, July 2026)
+
+Three real software bugs were found and fixed in `enduro-feather.ino`
+during first bring-up, all specific to this board's Adafruit nRF52 BSP
+(1.7.0) — isolated by progressively halting execution at different points
+and reading the result off the bistable Sharp display, since the Arduino
+IDE serial monitor was unreliable throughout:
+
+1. `Adafruit_GFX::getTextBounds()` hard-faults on this board. `drawCentered()`
+   now computes text width directly from the built-in font's fixed 6×8
+   glyph cell instead of calling it.
+2. `analogReference(AR_INTERNAL_3_0)` hard-faults. `readBatteryPct()` uses
+   the ADC's default reference/resolution instead of switching them.
+3. Calling a function containing a local `File` object hard-faults on this
+   board — even along a code path that never actually constructs one (e.g.
+   an early return). Route persistence is inlined directly in `setup()`
+   and `loop()` rather than factored into `loadPersistedRoute()`/
+   `persistRoute()` functions.
+4. `InternalFS.begin()` must run *after* `Bluefruit.begin()`, not before —
+   calling it first hard-faults once the SoftDevice touches flash.
+
+**Unresolved hardware defect:** BLE central role fails to initialize on
+this specific board — confirmed with the stock, unmodified
+`Adafruit Bluefruit nRF52 Libraries → Central → central_hrm` example,
+which crashes identically. Peripheral role works fine (confirmed with the
+stock `bleuart` example and in our own sketch). Reflashing the
+bootloader+SoftDevice combo (both the latest GitHub release and the
+BSP-bundled version, both S140 6.1.1) did not fix it. Central role is
+required for this product (connects to the CSC speed sensor as a BLE
+central), so this unit cannot complete bring-up as-is — treat as a
+defective unit; a replacement board should not hit this since it's
+isolated to BLE central specifically, not any of the four software bugs
+above (those are BSP-wide and will need to be reapplied/kept as-is on a
+new board with the same BSP version).

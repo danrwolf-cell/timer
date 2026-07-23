@@ -90,10 +90,7 @@ static volatile uint8_t sensorStatus = RS_SENSOR_DISCONNECTED;
 static uint32_t resetFlashUntilMs = 0;
 
 // Ride log: RAM buffer, ~2 h at 1 Hz. 10 bytes/row on the wire, 12 in RAM.
-// TEMP for bring-up: shrunk from 7200 to test whether dual-role BLE is
-// failing because the SoftDevice needs more RAM than the linker reserved,
-// and our large static buffer is crowding that space. Restore after test.
-#define RIDE_LOG_CAPACITY 10
+#define RIDE_LOG_CAPACITY 7200
 static rs_log_row_t rideLog[RIDE_LOG_CAPACITY];
 static volatile uint32_t rideLogCount = 0;
 static volatile bool rideLogOverflowed = false;
@@ -519,11 +516,7 @@ void setup() {
   // InternalFS.begin() must come after Bluefruit.begin() on this board —
   // calling it first hard-faults once the SoftDevice touches flash.
   // Isolated via progressive bring-up tests.
-  // Single-role peripheral-only worked with correct init order. Dual-role
-  // (1,1) faulted even with reduced RAM pressure. Testing central-only to
-  // isolate whether it's the central role specifically, or the
-  // combination of both roles together.
-  Bluefruit.begin(0 /* peripheral */, 1 /* central */);
+  Bluefruit.begin(1 /* peripheral */, 1 /* central */);
   Bluefruit.setTxPower(4);
 
   InternalFS.begin();
@@ -545,16 +538,6 @@ void setup() {
       f.close();
     }
   }
-
-#define ENDURO_DEBUG_HALT_AFTER_FS 1
-#if ENDURO_DEBUG_HALT_AFTER_FS
-  // Correct init order (Bluefruit before InternalFS) confirmed working
-  // with single-role. Never actually retested dual-role (1, 1) with the
-  // correct order — testing that specifically now, before any GATT
-  // service/characteristic setup.
-  render();
-  while (1) { delay(1000); }
-#endif
 
   char name[16];
   snprintf(name, sizeof(name), "Enduro-%04X",
