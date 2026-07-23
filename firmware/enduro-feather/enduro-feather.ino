@@ -37,6 +37,12 @@ extern "C" {
 using namespace Adafruit_LittleFS_Namespace;
 
 // ---------------------------------------------------------------------------
+// Temporary bring-up flag: set to 1 to skip all Bluefruit/BLE init and test
+// whether the display + serial path boots stably on its own. Leave at 0 for
+// normal builds — remove this flag once bring-up is done.
+#define ENDURO_DEBUG_SKIP_BLE 0
+
+// ---------------------------------------------------------------------------
 // Display — Adafruit 4694 breakout on hardware SPI. See docs/HARDWARE.md.
 
 #define SHARP_CS_PIN 5
@@ -541,6 +547,7 @@ void setup() {
   loadPersistedRoute();
   Serial.println("checkpoint: fs + route load done");
 
+#if !ENDURO_DEBUG_SKIP_BLE
   Bluefruit.begin(1 /* peripheral */, 1 /* central */);
   Bluefruit.setTxPower(4);
   Serial.println("checkpoint: bluefruit begin done");
@@ -602,6 +609,9 @@ void setup() {
   Bluefruit.Advertising.setFastTimeout(30);
   Bluefruit.Advertising.start(0);
   Serial.println("checkpoint: advertising started, calling render()");
+#else
+  Serial.println("checkpoint: BLE skipped for debug");
+#endif
 
   render();
   Serial.println("checkpoint: render() returned");
