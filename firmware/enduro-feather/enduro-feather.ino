@@ -566,11 +566,14 @@ void setup() {
   Serial.println("checkpoint: fs + route load done");
 
 #if !ENDURO_DEBUG_SKIP_BLE
-  Bluefruit.begin(1 /* peripheral */, 1 /* central */);
+  // Bisect test: dual-role (1 peripheral + 1 central) faults even bare.
+  // Testing peripheral-only role to check if dual-role RAM reservation
+  // is the problem.
+  Bluefruit.begin(1 /* peripheral */, 0 /* central */);
 
 #define ENDURO_DEBUG_HALT_AFTER_BLUEFRUIT_BEGIN 1
 #if ENDURO_DEBUG_HALT_AFTER_BLUEFRUIT_BEGIN
-  Serial.println("checkpoint: bisect - halting after bare Bluefruit.begin()");
+  Serial.println("checkpoint: bisect - halting after peripheral-only Bluefruit.begin()");
   render();
   while (1) { delay(1000); }
 #endif
