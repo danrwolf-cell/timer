@@ -147,6 +147,10 @@ static void persistRoute(const uint8_t *payload, uint16_t len) {
 }
 
 static void loadPersistedRoute() {
+  // A File object that's destructed after a failed open() hard-faults on
+  // this board — check existence first so we never construct one that
+  // could go out of scope unopened.
+  if (!InternalFS.exists(ROUTE_FILE)) return;
   File f(InternalFS);
   if (!f.open(ROUTE_FILE, FILE_O_READ)) return;
   uint32_t len = f.size();
