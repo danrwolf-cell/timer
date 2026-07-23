@@ -555,14 +555,18 @@ void setup() {
   Serial.println("checkpoint: InternalFS.begin() returned");
 
 #if ENDURO_DEBUG_SKIP_BLE
-  // Show the exists() result directly on screen — serial has been
-  // unreliable, and we need to know definitively whether a stale
-  // /route.bin is why the guarded loadPersistedRoute() still faulted.
-  bool routeExists = InternalFS.exists(ROUTE_FILE);
+  // exists() confirmed false on screen — the guarded loadPersistedRoute()
+  // should now be a clean no-op. Re-test the real function call directly
+  // to confirm (previous failing result may have been a stale build).
   display.clearDisplayBuffer();
   display.setTextColor(0);
   display.setTextWrap(false);
-  drawCentered(routeExists ? "EXISTS: TRUE" : "EXISTS: FALSE", 100, 3);
+  drawCentered("BEFORE CALL", 60, 3);
+  display.refresh();
+  delay(1500);
+  loadPersistedRoute();
+  display.clearDisplayBuffer();
+  drawCentered("AFTER CALL OK", 60, 3);
   display.refresh();
   while (1) { delay(1000); }  // halt here — don't touch BLE
 #endif
