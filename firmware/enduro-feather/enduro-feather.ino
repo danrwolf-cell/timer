@@ -544,20 +544,21 @@ void setup() {
   display.clearDisplay();
   Serial.println("checkpoint: display cleared");
 
-  // bleuart stock example proved Bluefruit/SoftDevice/bootloader are fine
-  // on this exact board. InternalFS was never tested in isolation before
-  // (earlier debug tests halted before reaching it) — test it now, still
-  // with BLE fully untouched.
+  // Filesystem format didn't fix the blank screen — bisect further.
+  // Test InternalFS.begin() ALONE first, before loadPersistedRoute()
+  // (which reads a file and calls into our route_sheet C decoder).
   InternalFS.begin();
-  loadPersistedRoute();
-  Serial.println("checkpoint: fs + route load done");
+  Serial.println("checkpoint: InternalFS.begin() returned");
 
 #if ENDURO_DEBUG_SKIP_BLE
-  Serial.println("checkpoint: rendering after InternalFS (debug minimal)");
+  Serial.println("checkpoint: rendering after bare InternalFS.begin() (debug minimal)");
   render();
   Serial.println("checkpoint: render() returned (debug minimal)");
-  while (1) { delay(1000); }  // halt here — don't touch BLE at all
+  while (1) { delay(1000); }  // halt here — don't touch loadPersistedRoute or BLE
 #endif
+
+  loadPersistedRoute();
+  Serial.println("checkpoint: fs + route load done");
 
 #if !ENDURO_DEBUG_SKIP_BLE
   // Bisect test: dual-role (1 peripheral + 1 central) faults even bare.
