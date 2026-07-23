@@ -536,6 +536,16 @@ void setup() {
   Bluefruit.begin(1 /* peripheral */, 1 /* central */);
   Bluefruit.setTxPower(4);
 
+#define ENDURO_DEBUG_HALT_AFTER_BLUEFRUIT_BEGIN 1
+#if ENDURO_DEBUG_HALT_AFTER_BLUEFRUIT_BEGIN
+  // Every earlier Bluefruit test still had the OLD buggy loadPersistedRoute()
+  // function call running first, so those failures were never really about
+  // Bluefruit's role config. This is the first test of Bluefruit.begin()
+  // together with the now-fixed (inlined) InternalFS route load.
+  render();
+  while (1) { delay(1000); }
+#endif
+
   char name[16];
   snprintf(name, sizeof(name), "Enduro-%04X",
            (unsigned)(NRF_FICR->DEVICEID[0] & 0xFFFF));
