@@ -575,6 +575,13 @@ void setup() {
            (unsigned)(NRF_FICR->DEVICEID[0] & 0xFFFF));
   Bluefruit.setName(name);
 
+#define ENDURO_DEBUG_HALT_AFTER_BLUEFRUIT_BEGIN 1
+#if ENDURO_DEBUG_HALT_AFTER_BLUEFRUIT_BEGIN
+  Serial.println("checkpoint: bisect - halting after Bluefruit.begin/setName");
+  render();
+  while (1) { delay(1000); }
+#endif
+
   // Peripheral: Enduro service
   enduroService.begin();
 
