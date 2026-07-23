@@ -555,16 +555,19 @@ void setup() {
   Serial.println("checkpoint: InternalFS.begin() returned");
 
 #if ENDURO_DEBUG_SKIP_BLE
-  // exists() confirmed false on screen — the guarded loadPersistedRoute()
-  // should now be a clean no-op. Re-test the real function call directly
-  // to confirm (previous failing result may have been a stale build).
+  // Same timing/display sequence as the failing test, but inlined instead
+  // of calling loadPersistedRoute() as a separate function — isolates
+  // whether the function-call boundary itself is implicated, independent
+  // of timing relative to the prior display refresh.
   display.clearDisplayBuffer();
   display.setTextColor(0);
   display.setTextWrap(false);
   drawCentered("BEFORE CALL", 60, 3);
   display.refresh();
   delay(1500);
-  loadPersistedRoute();
+  if (InternalFS.exists(ROUTE_FILE)) {
+    // won't run — exists() confirmed false — kept for parity with the fn
+  }
   display.clearDisplayBuffer();
   drawCentered("AFTER CALL OK", 60, 3);
   display.refresh();
