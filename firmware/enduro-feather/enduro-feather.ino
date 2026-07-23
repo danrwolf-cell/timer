@@ -543,6 +543,18 @@ void setup() {
   display.clearDisplay();
   Serial.println("checkpoint: display cleared");
 
+#if ENDURO_DEBUG_SKIP_BLE
+  // Minimal isolation test: render immediately, skip filesystem + BLE
+  // entirely, so nothing after this can crash and corrupt the result.
+  // The Sharp Memory LCD is bistable (its own SRAM holds the image), so
+  // whatever shows after this render() call will persist even if
+  // something later crashes the MCU.
+  Serial.println("checkpoint: calling render() immediately (debug minimal)");
+  render();
+  Serial.println("checkpoint: render() returned (debug minimal)");
+  while (1) { delay(1000); }  // halt here — don't touch FS or BLE at all
+#endif
+
   InternalFS.begin();
   loadPersistedRoute();
   Serial.println("checkpoint: fs + route load done");
