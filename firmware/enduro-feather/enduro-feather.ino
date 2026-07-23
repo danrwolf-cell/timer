@@ -519,7 +519,11 @@ void setup() {
   // InternalFS.begin() must come after Bluefruit.begin() on this board —
   // calling it first hard-faults once the SoftDevice touches flash.
   // Isolated via progressive bring-up tests.
-  Bluefruit.begin(1 /* peripheral */, 1 /* central */);
+  // Single-role peripheral-only worked with correct init order. Dual-role
+  // (1,1) faulted even with reduced RAM pressure. Testing central-only to
+  // isolate whether it's the central role specifically, or the
+  // combination of both roles together.
+  Bluefruit.begin(0 /* peripheral */, 1 /* central */);
   Bluefruit.setTxPower(4);
 
   InternalFS.begin();
