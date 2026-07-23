@@ -551,7 +551,15 @@ void setup() {
   Serial.println("checkpoint: InternalFS.begin() returned");
 
 #if ENDURO_DEBUG_SKIP_BLE
-  Serial.println("checkpoint: rendering after bare InternalFS.begin() (debug minimal)");
+  // Bare InternalFS.begin() worked. Bisect loadPersistedRoute() manually:
+  // just constructing a File object + attempting to open (should fail
+  // cleanly since /route.bin doesn't exist on a freshly formatted FS).
+  Serial.println("checkpoint: constructing File object (debug minimal)");
+  File debugF(InternalFS);
+  Serial.println("checkpoint: File constructed, calling open() (debug minimal)");
+  bool opened = debugF.open(ROUTE_FILE, FILE_O_READ);
+  Serial.print("checkpoint: open() returned ");
+  Serial.println(opened ? "true" : "false");
   render();
   Serial.println("checkpoint: render() returned (debug minimal)");
   while (1) { delay(1000); }  // halt here — don't touch loadPersistedRoute or BLE
