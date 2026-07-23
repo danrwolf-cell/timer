@@ -544,12 +544,12 @@ void setup() {
   Serial.println("checkpoint: display cleared");
 
 #if ENDURO_DEBUG_SKIP_BLE
-  // drawCentered() fix confirmed working. Now test readBatteryPct(),
-  // the other piece render() calls that this debug path had skipped.
-  Serial.println("checkpoint: readBatteryPct test (debug minimal)");
-  uint8_t battTest = readBatteryPct();
-  Serial.print("checkpoint: readBatteryPct returned ");
-  Serial.println(battTest);
+  // readBatteryPct() faulted. Narrow further: bare analogRead(PIN_VBAT)
+  // with no reference/resolution switching first.
+  Serial.println("checkpoint: bare analogRead test (debug minimal)");
+  int vbatRaw = analogRead(PIN_VBAT);
+  Serial.print("checkpoint: analogRead(PIN_VBAT) returned ");
+  Serial.println(vbatRaw);
   display.clearDisplayBuffer();
   display.setTextColor(0);
   display.setTextWrap(false);
