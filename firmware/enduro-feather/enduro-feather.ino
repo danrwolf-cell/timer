@@ -513,12 +513,14 @@ void setup() {
   display.begin();
   display.clearDisplay();
 
-  // InternalFS.begin() skipped for this test — isolating whether it's
-  // specifically InternalFS+Bluefruit interacting, or something else
-  // about our sketch's memory footprint (large static buffers) that the
-  // working bleuart example doesn't have.
+  // Confirmed: InternalFS.begin() + Bluefruit.begin() together fault,
+  // each alone is fine. Testing reordered — Bluefruit first, then
+  // InternalFS — since flash access is supposed to route through the
+  // SoftDevice once it's active, which may resolve the conflict.
   Bluefruit.begin(1 /* peripheral */, 0 /* central */);
   Bluefruit.setTxPower(4);
+
+  InternalFS.begin();
 
 #define ENDURO_DEBUG_HALT_AFTER_BLUEFRUIT_BEGIN 1
 #if ENDURO_DEBUG_HALT_AFTER_BLUEFRUIT_BEGIN
