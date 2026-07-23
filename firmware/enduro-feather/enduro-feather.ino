@@ -551,18 +551,16 @@ void setup() {
   Serial.println("checkpoint: InternalFS.begin() returned");
 
 #if ENDURO_DEBUG_SKIP_BLE
-  // Bare InternalFS.begin() worked. Bisect loadPersistedRoute() manually:
-  // just constructing a File object + attempting to open (should fail
-  // cleanly since /route.bin doesn't exist on a freshly formatted FS).
-  Serial.println("checkpoint: constructing File object (debug minimal)");
-  File debugF(InternalFS);
-  Serial.println("checkpoint: File constructed, calling open() (debug minimal)");
-  bool opened = debugF.open(ROUTE_FILE, FILE_O_READ);
-  Serial.print("checkpoint: open() returned ");
-  Serial.println(opened ? "true" : "false");
+  // Manual inline replica of loadPersistedRoute() worked. Now call the
+  // ACTUAL function — the one difference is that it returns early or
+  // falls out of scope, destructing its local File object, which the
+  // inline test never did (we halted before scope exit).
+  Serial.println("checkpoint: calling real loadPersistedRoute() (debug minimal)");
+  loadPersistedRoute();
+  Serial.println("checkpoint: loadPersistedRoute() returned (debug minimal)");
   render();
   Serial.println("checkpoint: render() returned (debug minimal)");
-  while (1) { delay(1000); }  // halt here — don't touch loadPersistedRoute or BLE
+  while (1) { delay(1000); }  // halt here — don't touch BLE
 #endif
 
   loadPersistedRoute();
