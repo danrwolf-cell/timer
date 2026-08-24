@@ -62,5 +62,8 @@ copy `firmware/core` into your sketchbook `libraries/` folder as `EnduroCore`.
   RESET and the deviation continues from full key time (no re-anchoring).
   Re-anchoring is a Phase 2 decision that must change the TS golden
   reference first, then this firmware.
-- **No device-side buttons yet**: the phone is the only input. The planned
-  handlebar remote lands as a second central connection later.
+- **One hardwired input**: a momentary reset button on pin 6 (see
+  `docs/HARDWARE.md`), debounced in `loop()`, firing the same effect as the
+  phone's `MANUAL_RESET` control command. No BLE remote — decided against
+  BT shutter/media remotes (HID/AVRCP, no documented GATT service, adds a
+  pairing step) in favor of hardwired-only input on the unit.

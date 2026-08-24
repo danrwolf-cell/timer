@@ -23,6 +23,17 @@ VCOM, which the Adafruit_SharpMem library toggles on every refresh.
 | DI | MO | SPI data |
 | CS | 5 | Chip select (`SHARP_CS_PIN` in the sketch) |
 
+Plus the reset button (two wires, no resistor needed):
+
+| Button | Feather nRF52840 | Purpose |
+|---|---|---|
+| Leg 1 | GND | Ground |
+| Leg 2 | 6 | Momentary, active-low (`RESET_BUTTON_PIN`, internal pull-up) |
+
+Any momentary normally-open pushbutton works for breadboard testing. For a
+handlebar-mounted unit, use a sealed 12mm waterproof momentary pushbutton
+(panel-mount, IP65) instead — same two legs, same wiring.
+
 Notes:
 
 - The Feather nRF52840 Express silkscreens its digital pins as bare numbers
@@ -56,6 +67,7 @@ reset button to enter the UF2 bootloader.
    header changes to `SENSOR OK` without any pairing step.
 4. **Ride**: START RIDE from the phone. Spin the wheel — distance and the
    hero deviation number move. Cross a reset boundary to see the RESET flash.
+   Press the hardwired reset button — same RESET flash, no phone involved.
 5. **Cross-validation** (the point of the prototype): END RIDE, then PULL
    RIDE LOG. The phone replays the raw log through the TypeScript engine
    and shows the deviation chart. The numbers the panel displayed live and
@@ -68,7 +80,8 @@ reset button to enter the UF2 bootloader.
 ## Known prototype limits
 
 - Ride log is RAM-only (~2 h at 1 Hz): pull it before powering off.
-- No buttons on the unit yet — the phone is the remote. The handlebar
-  remote (Priority 3) arrives as a second central connection later.
+- Reset button is the only hardwired input so far — one action (manual
+  reset), same as `MANUAL_RESET` from the phone. No other on-unit controls
+  yet.
 - The panel is unmounted bare electronics: keep it dry; enclosure is
   Phase 4.

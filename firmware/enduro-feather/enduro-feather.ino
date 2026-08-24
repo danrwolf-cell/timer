@@ -46,6 +46,15 @@ using namespace Adafruit_LittleFS_Namespace;
 Adafruit_SharpMem display(&SPI, SHARP_CS_PIN, DISPLAY_W, DISPLAY_H);
 
 // ---------------------------------------------------------------------------
+// Hardwired reset button — momentary, active-low via internal pull-up.
+// Decided: no BLE remote (HID/AVRCP shutter-style devices don't speak a
+// documented GATT service and add a pairing step to a device that should
+// just work at the trailhead). Wiring: docs/HARDWARE.md.
+
+#define RESET_BUTTON_PIN 6
+#define RESET_BUTTON_DEBOUNCE_MS 50
+
+// ---------------------------------------------------------------------------
 // Enduro GATT service (UUIDs from docs/BLE-PROTOCOL.md, little-endian bytes)
 
 #define ENDURO_UUID(shortId) \
@@ -523,12 +532,40 @@ static void render() {
 }
 
 // ---------------------------------------------------------------------------
+// Hardwired reset button — debounced falling edge on RESET_BUTTON_PIN fires
+// the same effect as CONTROL 0x03 (MANUAL_RESET): momentary zero, parity
+// with the phone's RESET button.
+
+static void pollResetButton() {
+  static bool lastReading = HIGH;
+  static bool debouncedState = HIGH;
+  static uint32_t lastChangeMs = 0;
+
+  bool reading = digitalRead(RESET_BUTTON_PIN);
+  uint32_t now = millis();
+
+  if (reading != lastReading) {
+    lastChangeMs = now;
+    lastReading = reading;
+  }
+
+  if (now - lastChangeMs >= RESET_BUTTON_DEBOUNCE_MS && reading != debouncedState) {
+    debouncedState = reading;
+    if (debouncedState == LOW) {  // press
+      resetFlashUntilMs = now + 3000;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 void setup() {
   Serial.begin(115200);
 
   display.begin();
   display.clearDisplay();
+
+  pinMode(RESET_BUTTON_PIN, INPUT_PULLUP);
 
   InternalFS.begin();
   loadPersistedRoute();
@@ -600,6 +637,8 @@ void loop() {
   static uint32_t lastRenderMs = 0;
   static uint32_t lastStatusMs = 0;
   uint32_t now = millis();
+
+  pollResetButton();
 
   if (routePersistPending) {
     routePersistPending = false;

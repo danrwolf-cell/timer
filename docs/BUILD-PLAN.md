@@ -87,15 +87,40 @@ Both a genuine 32-bit rollover and a sensor power-cycle present as negative `del
 
 ---
 
-### Priority 3 — Handlebar BLE remote
+### Priority 3 — Handlebar reset button ✅ DONE (hardwired, not BLE)
 
-**Decision: Priority 2 item on phone, primary input on ESP32.**
+**Decision (August 2026, reversed from the original BLE-remote plan below):
+input on the handlebar unit is a hardwired GPIO button, not a Bluetooth
+remote.** Rationale: BT shutter/media remotes (AB Shutter 3, Satechi) don't
+speak a documented GATT service — they're HID keyboard or AVRCP devices —
+which means reverse-engineering a report format and adding a pairing step
+to a device that should just work at the trailhead. A momentary pushbutton
+wired directly to a Feather GPIO pin needs none of that: no pairing, no
+second BLE central role to maintain, nothing to re-pair after a battery
+change. This is a permanent product decision, not just a testing shortcut
+— **no BLE remote path will be built.**
+
+Implemented: `firmware/enduro-feather/enduro-feather.ino` — `RESET_BUTTON_PIN`
+(pin 6, internal pull-up, debounced in `loop()`) fires the same effect as
+the `MANUAL_RESET` control command (0x03), matching the phone's RESET
+button. Wiring in `docs/HARDWARE.md`.
+
+Only one action exists so far (manual reset). If future actions are needed
+(e.g. `markCheck`), they add more hardwired buttons/pins — not a remote
+device.
+
+<details>
+<summary>Original BLE-remote plan (superseded, kept for history)</summary>
+
+Decision: Priority 2 item on phone, primary input on ESP32.
 
 Rationale: the phone live-screen is a demo. Getting through one real ride using the touch RESET button is acceptable for validation purposes. However, there is a real risk in validating a touch-driven live screen for too long — you end up optimizing a UI model that gets thrown away when the ESP32 takes over.
 
 Mitigation: keep touch interaction minimal and functional (it already is). Do not add gesture refinements or multi-tap shortcuts to the phone live-screen. When the remote lands, it lands as a second `BleManager` connection (separate device) that fires the same store actions (`manualReset`, future `incrementMileage`, `markCheck`). The phone remote implementation is a direct preview of the ESP32 input handler.
 
 Target remote for first validation: the BT shutter / media remote family (AB Shutter 3, Satechi) that the CheckPoint Two community has already validated. These present as HID keyboard or AVRCP and don't speak a documented GATT service — scan by device name pattern or require manual pairing. Document which one ships first.
+
+</details>
 
 ---
 
@@ -173,7 +198,6 @@ Goal: a working app you can ride with that produces trustworthy numbers and a ra
 
 ### Phase 2 — Phone companion solidified
 
-- [ ] Handlebar BLE remote (HID/AVRCP, primary input path proven)
 - [ ] Route sharing (search, publish, AirDrop local share)
 - [ ] CSV route import
 - [ ] Audio cues to Bluetooth speakers
@@ -191,6 +215,7 @@ Goal: a working app you can ride with that produces trustworthy numbers and a ra
 - [x] Phone companion BLE connection to the device (`src/ble/device-manager.ts`, DeviceScreen)
 - [x] Route push (phone → device)
 - [x] Ride log pull (device → phone) → raw_csc_log → replay validation path
+- [x] Hardwired reset button (Priority 3 — no BLE remote, see above)
 - [ ] Board bring-up on the physical hardware (flash, wire, run the `docs/HARDWARE.md` checklist) ← **you are here**
 - [ ] Field cross-validation: ride, pull the log, compare live-displayed deviation to phone replay
 - [ ] Sharp Memory LCD draw spec round 2: per-check DQ states with max_late_seconds, time-format polish (current renderer is functional)
@@ -208,7 +233,7 @@ Goal: a working app you can ride with that produces trustworthy numbers and a ra
 
 ## Open questions (first-class, not deferred)
 
-1. **Which BLE remote ships first.** AB Shutter 3 is cheap and documented; get one in hand and characterize its GATT profile before writing the remote handler. The HID vs. AVRCP distinction changes the connection approach significantly.
+1. ~~**Which BLE remote ships first.**~~ **Resolved:** no BLE remote — hardwired GPIO reset button instead. See Priority 3.
 
 2. **iOS backgrounding behavior.** Prototype this before riding with the app. See Priority 4 above.
 
