@@ -46,13 +46,31 @@ using namespace Adafruit_LittleFS_Namespace;
 Adafruit_SharpMem display(&SPI, SHARP_CS_PIN, DISPLAY_W, DISPLAY_H);
 
 // ---------------------------------------------------------------------------
-// Hardwired reset button — momentary, active-low via internal pull-up.
-// Decided: no BLE remote (HID/AVRCP shutter-style devices don't speak a
-// documented GATT service and add a pairing step to a device that should
-// just work at the trailhead). Wiring: docs/HARDWARE.md.
+// Hardwired buttons — momentary, active-low via internal pull-up. No BLE
+// remote (HID/AVRCP shutter-style devices don't speak a documented GATT
+// service and add a pairing step to a device that should just work at the
+// trailhead). Wiring: docs/HARDWARE.md.
+//
+// RESET zeroes displayed deviation — parity with the phone's MANUAL_RESET.
+//
+// UP/DOWN nudge cumulative distance against a known course mile marker.
+// A wheel-revolution odometer drifts from the course's measured distance
+// over a section — tire wear, wheel spin in mud/sand, course-measurement
+// error — and that drift is real-world physical reality, not a bug to fix
+// in software. Every enduro trip computer (ICO CheckMate's Autocal is the
+// reference) gives the rider a live, two-directional correction against
+// painted mile markers. Without it the unit is unusable on an actual
+// course: distance-driven key time and deviation would silently drift off
+// from what the route sheet expects. Tap = fine step; hold = repeat, for
+// correcting larger drift without a hundred taps.
 
 #define RESET_BUTTON_PIN 6
-#define RESET_BUTTON_DEBOUNCE_MS 50
+#define UP_BUTTON_PIN 9
+#define DOWN_BUTTON_PIN 10
+#define BUTTON_DEBOUNCE_MS 50
+#define ADJUST_STEP_MI 0.01
+#define ADJUST_HOLD_DELAY_MS 600
+#define ADJUST_REPEAT_MS 150
 
 // ---------------------------------------------------------------------------
 // Enduro GATT service (UUIDs from docs/BLE-PROTOCOL.md, little-endian bytes)
@@ -532,28 +550,75 @@ static void render() {
 }
 
 // ---------------------------------------------------------------------------
-// Hardwired reset button — debounced falling edge on RESET_BUTTON_PIN fires
-// the same effect as CONTROL 0x03 (MANUAL_RESET): momentary zero, parity
-// with the phone's RESET button.
+// Hardwired buttons — debounced, with optional press-and-hold auto-repeat
+// for UP/DOWN. RESET fires CONTROL 0x03's effect; UP/DOWN nudge cumulativeMi
+// directly (course mile-marker correction, not a route-sheet reset).
 
-static void pollResetButton() {
-  static bool lastReading = HIGH;
-  static bool debouncedState = HIGH;
-  static uint32_t lastChangeMs = 0;
+struct DebouncedButton {
+  uint8_t pin;
+  bool lastReading = HIGH;
+  bool debouncedState = HIGH;
+  uint32_t lastChangeMs = 0;
+  uint32_t pressStartMs = 0;
+  uint32_t lastRepeatMs = 0;
 
-  bool reading = digitalRead(RESET_BUTTON_PIN);
+  explicit DebouncedButton(uint8_t p) : pin(p) {}
+};
+
+static DebouncedButton resetButton(RESET_BUTTON_PIN);
+static DebouncedButton upButton(UP_BUTTON_PIN);
+static DebouncedButton downButton(DOWN_BUTTON_PIN);
+
+// Returns true on the debounced press edge, and again on each auto-repeat
+// tick while held (if allowRepeat).
+static bool pollButton(DebouncedButton &b, bool allowRepeat) {
+  bool reading = digitalRead(b.pin);
   uint32_t now = millis();
+  bool fired = false;
 
-  if (reading != lastReading) {
-    lastChangeMs = now;
-    lastReading = reading;
+  if (reading != b.lastReading) {
+    b.lastChangeMs = now;
+    b.lastReading = reading;
   }
 
-  if (now - lastChangeMs >= RESET_BUTTON_DEBOUNCE_MS && reading != debouncedState) {
-    debouncedState = reading;
-    if (debouncedState == LOW) {  // press
-      resetFlashUntilMs = now + 3000;
+  if (now - b.lastChangeMs >= BUTTON_DEBOUNCE_MS && reading != b.debouncedState) {
+    b.debouncedState = reading;
+    if (b.debouncedState == LOW) {  // press edge
+      b.pressStartMs = now;
+      b.lastRepeatMs = now;
+      fired = true;
     }
+  }
+
+  if (allowRepeat && b.debouncedState == LOW &&
+      now - b.pressStartMs >= ADJUST_HOLD_DELAY_MS &&
+      now - b.lastRepeatMs >= ADJUST_REPEAT_MS) {
+    b.lastRepeatMs = now;
+    fired = true;
+  }
+
+  return fired;
+}
+
+static void adjustDistance(double deltaMi) {
+  if (!routeLoaded) return;  // nothing to recompute a segment against
+  cumulativeMi += deltaMi;
+  if (cumulativeMi < 0) cumulativeMi = 0;
+  pe_position_t pos = pe_detect_segment(segments, route.count, cumulativeMi);
+  segmentIndex = pos.segment_index;  // no crossedReset check: a mile-marker
+                                      // correction isn't crossing a route
+                                      // reset checkpoint, so no RESET flash
+}
+
+static void pollButtons() {
+  if (pollButton(resetButton, false)) {
+    resetFlashUntilMs = millis() + 3000;
+  }
+  if (pollButton(upButton, true)) {
+    adjustDistance(ADJUST_STEP_MI);
+  }
+  if (pollButton(downButton, true)) {
+    adjustDistance(-ADJUST_STEP_MI);
   }
 }
 
@@ -566,6 +631,8 @@ void setup() {
   display.clearDisplay();
 
   pinMode(RESET_BUTTON_PIN, INPUT_PULLUP);
+  pinMode(UP_BUTTON_PIN, INPUT_PULLUP);
+  pinMode(DOWN_BUTTON_PIN, INPUT_PULLUP);
 
   InternalFS.begin();
   loadPersistedRoute();
@@ -638,7 +705,7 @@ void loop() {
   static uint32_t lastStatusMs = 0;
   uint32_t now = millis();
 
-  pollResetButton();
+  pollButtons();
 
   if (routePersistPending) {
     routePersistPending = false;

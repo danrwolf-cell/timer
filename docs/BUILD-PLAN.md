@@ -87,27 +87,41 @@ Both a genuine 32-bit rollover and a sensor power-cycle present as negative `del
 
 ---
 
-### Priority 3 — Handlebar reset button ✅ DONE (hardwired, not BLE)
+### Priority 3 — Handlebar buttons: RESET, UP, DOWN ✅ DONE (hardwired, not BLE)
 
 **Decision (August 2026, reversed from the original BLE-remote plan below):
-input on the handlebar unit is a hardwired GPIO button, not a Bluetooth
+input on the handlebar unit is hardwired GPIO buttons, not a Bluetooth
 remote.** Rationale: BT shutter/media remotes (AB Shutter 3, Satechi) don't
 speak a documented GATT service — they're HID keyboard or AVRCP devices —
 which means reverse-engineering a report format and adding a pairing step
-to a device that should just work at the trailhead. A momentary pushbutton
-wired directly to a Feather GPIO pin needs none of that: no pairing, no
+to a device that should just work at the trailhead. Momentary pushbuttons
+wired directly to Feather GPIO pins need none of that: no pairing, no
 second BLE central role to maintain, nothing to re-pair after a battery
 change. This is a permanent product decision, not just a testing shortcut
 — **no BLE remote path will be built.**
 
-Implemented: `firmware/enduro-feather/enduro-feather.ino` — `RESET_BUTTON_PIN`
-(pin 6, internal pull-up, debounced in `loop()`) fires the same effect as
-the `MANUAL_RESET` control command (0x03), matching the phone's RESET
-button. Wiring in `docs/HARDWARE.md`.
+Three buttons, not one — a single reset button was not enough. Every
+established enduro trip computer (ICO CheckMate is the reference) pairs a
+RESET with two-directional UP/DOWN distance correction, because a
+wheel-revolution odometer drifts from the course's measured distance
+(tire wear, wheel spin, course-measurement error) and the rider needs a
+live correction against painted mile markers — without it, distance-driven
+key time and deviation silently drift off from the route sheet over a
+section. This is load-bearing functionality, not a nice-to-have: the unit
+does not work on an actual course without it.
 
-Only one action exists so far (manual reset). If future actions are needed
-(e.g. `markCheck`), they add more hardwired buttons/pins — not a remote
-device.
+Implemented in `firmware/enduro-feather/enduro-feather.ino`:
+- `RESET_BUTTON_PIN` (pin 6) fires the same effect as the `MANUAL_RESET`
+  control command (0x03), matching the phone's RESET button — zeroes
+  displayed deviation only.
+- `UP_BUTTON_PIN` / `DOWN_BUTTON_PIN` (pins 9/10) nudge `cumulativeMi`
+  directly by `ADJUST_STEP_MI` (0.01 mi) per tap, auto-repeating on hold —
+  the Autocal equivalent. Device-only: nothing on the phone side
+  (`ride-store.ts`) does distance correction yet, since the phone live
+  screen is a demo harness and this only matters for the real course ride.
+
+All three debounced with a shared helper in `loop()`. Wiring in
+`docs/HARDWARE.md`.
 
 <details>
 <summary>Original BLE-remote plan (superseded, kept for history)</summary>
@@ -215,7 +229,7 @@ Goal: a working app you can ride with that produces trustworthy numbers and a ra
 - [x] Phone companion BLE connection to the device (`src/ble/device-manager.ts`, DeviceScreen)
 - [x] Route push (phone → device)
 - [x] Ride log pull (device → phone) → raw_csc_log → replay validation path
-- [x] Hardwired reset button (Priority 3 — no BLE remote, see above)
+- [x] Hardwired RESET/UP/DOWN buttons (Priority 3 — no BLE remote, see above)
 - [ ] Board bring-up on the physical hardware (flash, wire, run the `docs/HARDWARE.md` checklist) ← **you are here**
 - [ ] Field cross-validation: ride, pull the log, compare live-displayed deviation to phone replay
 - [ ] Sharp Memory LCD draw spec round 2: per-check DQ states with max_late_seconds, time-format polish (current renderer is functional)
@@ -233,7 +247,7 @@ Goal: a working app you can ride with that produces trustworthy numbers and a ra
 
 ## Open questions (first-class, not deferred)
 
-1. ~~**Which BLE remote ships first.**~~ **Resolved:** no BLE remote — hardwired GPIO reset button instead. See Priority 3.
+1. ~~**Which BLE remote ships first.**~~ **Resolved:** no BLE remote — hardwired RESET/UP/DOWN GPIO buttons instead. See Priority 3.
 
 2. **iOS backgrounding behavior.** Prototype this before riding with the app. See Priority 4 above.
 

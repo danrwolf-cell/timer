@@ -52,6 +52,7 @@ copy `firmware/core` into your sketchbook `libraries/` folder as `EnduroCore`.
   above a minute), ON TIME state, segment index/label, FREE indicator,
   RESET flash on crossing a reset checkpoint, speed + distance footer,
   sensor + battery status header.
+- **Hardwired buttons**: RESET, UP, DOWN (see below).
 
 ## Prototype limitations (deliberate)
 
@@ -62,8 +63,16 @@ copy `firmware/core` into your sketchbook `libraries/` folder as `EnduroCore`.
   RESET and the deviation continues from full key time (no re-anchoring).
   Re-anchoring is a Phase 2 decision that must change the TS golden
   reference first, then this firmware.
-- **One hardwired input**: a momentary reset button on pin 6 (see
-  `docs/HARDWARE.md`), debounced in `loop()`, firing the same effect as the
-  phone's `MANUAL_RESET` control command. No BLE remote — decided against
-  BT shutter/media remotes (HID/AVRCP, no documented GATT service, adds a
-  pairing step) in favor of hardwired-only input on the unit.
+- **Three hardwired inputs, no BLE remote** (see `docs/HARDWARE.md`):
+  decided against BT shutter/media remotes (HID/AVRCP, no documented GATT
+  service, adds a pairing step) in favor of buttons wired straight to the
+  Feather.
+  - **RESET** (pin 6) fires the same effect as the phone's `MANUAL_RESET`
+    control command: zeroes displayed deviation.
+  - **UP/DOWN** (pins 9/10) nudge `cumulativeMi` by 0.01 mi per tap
+    (auto-repeating on hold) — course mile-marker correction for
+    wheel-revolution drift (tire wear, wheel spin, course-measurement
+    error), the same function as the ICO CheckMate's Autocal. This does
+    not exist on the phone side (`ride-store.ts`'s `manualReset` only
+    zeroes deviation, not distance) — device-only for now.
+  All three debounced in `loop()` via a shared helper.
