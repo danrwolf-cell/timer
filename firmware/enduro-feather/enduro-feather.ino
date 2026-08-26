@@ -632,27 +632,71 @@ static void pollButtons() {
 }
 
 // ---------------------------------------------------------------------------
+// Boot progress. Each stage is printed to serial AND painted on the panel, so
+// a hang during setup() leaves the last completed stage on screen — the Sharp
+// LCD holds its last image, which makes it a usable debugger when no serial
+// monitor is attached. If the unit ever boots to a "BOOT: ..." screen instead
+// of NO ROUTE/READY, setup() died at the stage after the one shown.
+
+static void bootStage(const char *msg) {
+  Serial.print("[boot] ");
+  Serial.println(msg);
+  display.clearDisplayBuffer();
+  display.setTextColor(BLACK);
+  display.setTextWrap(false);
+  display.setTextSize(2);
+  display.setCursor(4, 4);
+  display.print("BOOT: ");
+  display.print(msg);
+  display.refresh();
+  delay(150);  // long enough for a human to watch the sequence
+}
 
 void setup() {
   Serial.begin(115200);
+  // Bounded wait: give USB serial a moment to enumerate so early prints aren't
+  // lost, but never block forever when running off a battery with no host.
+  uint32_t serialWaitStart = millis();
+  while (!Serial && millis() - serialWaitStart < 2000) {}
 
-  display.begin();
+  // begin() mallocs the 12 KB frame buffer. If that fails it returns false and
+  // every subsequent draw writes through a null pointer — a hard fault with a
+  // blank panel and no clue why. Signal it on the LED instead.
+  if (!display.begin()) {
+    Serial.println("[boot] FATAL: display.begin() failed (frame buffer alloc)");
+    pinMode(LED_BUILTIN, OUTPUT);
+    for (;;) {
+      digitalWrite(LED_BUILTIN, HIGH);
+      delay(100);
+      digitalWrite(LED_BUILTIN, LOW);
+      delay(100);
+    }
+  }
   display.clearDisplay();
+  bootStage("display");
 
   pinMode(RESET_BUTTON_PIN, INPUT_PULLUP);
   pinMode(UP_BUTTON_PIN, INPUT_PULLUP);
   pinMode(DOWN_BUTTON_PIN, INPUT_PULLUP);
+  bootStage("buttons");
 
   InternalFS.begin();
+  bootStage("filesystem");
   loadPersistedRoute();
+  bootStage("route load");
 
-  Bluefruit.begin(1 /* peripheral */, 1 /* central */);
+  if (!Bluefruit.begin(1 /* peripheral */, 1 /* central */)) {
+    Serial.println("[boot] FATAL: Bluefruit.begin() failed");
+    bootStage("BLE FAILED");
+    for (;;) delay(1000);
+  }
   Bluefruit.setTxPower(4);
 
   char name[16];
   snprintf(name, sizeof(name), "Enduro-%04X",
            (unsigned)(NRF_FICR->DEVICEID[0] & 0xFFFF));
   Bluefruit.setName(name);
+  bootStage("bluefruit");
 
   // Peripheral: Enduro service
   enduroService.begin();
@@ -678,11 +722,13 @@ void setup() {
   rideLogChar.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
   rideLogChar.setMaxLen(247);
   rideLogChar.begin();
+  bootStage("gatt");
 
   // Central: CSC client
   cscService.begin();
   cscMeasurement.setNotifyCallback(cscNotifyCallback);
   cscMeasurement.begin();
+  bootStage("csc client");
 
   Bluefruit.Central.setConnectCallback(centralConnectCallback);
   Bluefruit.Central.setDisconnectCallback(centralDisconnectCallback);
@@ -695,6 +741,7 @@ void setup() {
   Bluefruit.Scanner.useActiveScan(false);
   Bluefruit.Scanner.setInterval(160, 80);  // 100 ms interval, 50 ms window
   Bluefruit.Scanner.start(0);              // scan forever
+  bootStage("scanner");
 
   // Advertise to the phone
   Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
@@ -705,14 +752,28 @@ void setup() {
   Bluefruit.Advertising.setInterval(32, 244);
   Bluefruit.Advertising.setFastTimeout(30);
   Bluefruit.Advertising.start(0);
+  bootStage("advertising");
 
+  Serial.println("[boot] setup complete");
   render();
 }
 
 void loop() {
   static uint32_t lastRenderMs = 0;
   static uint32_t lastStatusMs = 0;
+  static uint32_t lastHeartbeatMs = 0;
   uint32_t now = millis();
+
+  // Heartbeat: proves loop() is still running when the panel looks frozen.
+  if (now - lastHeartbeatMs >= 2000) {
+    lastHeartbeatMs = now;
+    Serial.print("[loop] up=");
+    Serial.print(now / 1000);
+    Serial.print("s route=");
+    Serial.print(routeLoaded ? "yes" : "no");
+    Serial.print(" mi=");
+    Serial.println(cumulativeMi, 2);
+  }
 
   pollButtons();
 
