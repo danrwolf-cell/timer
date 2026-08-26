@@ -326,18 +326,22 @@ static void cscNotifyCallback(BLEClientCharacteristic *chr, uint8_t *data,
 // CSC sensors never advertise 0x1816 at all — they advertise a name only, and
 // you learn what they speak after connecting — so the inventory is how we find
 // out what this sensor actually looks like.
-#define SCAN_LOG_MAX 24
+#define SCAN_LOG_MAX 64
 static uint8_t scanSeenAddrs[SCAN_LOG_MAX][6];
 static uint8_t scanSeenCount = 0;
 
+// Returns true the first time an address is seen. Once the table is full it
+// can no longer remember new addresses, so it reports every sighting as new —
+// callers must not let that turn into a flood (see scanCallback).
 static bool scanFirstSighting(const uint8_t *addr) {
   for (uint8_t i = 0; i < scanSeenCount; i++) {
     if (memcmp(scanSeenAddrs[i], addr, 6) == 0) return false;
   }
   if (scanSeenCount < SCAN_LOG_MAX) {
     memcpy(scanSeenAddrs[scanSeenCount++], addr, 6);
+    return true;
   }
-  return true;
+  return true;  // table full: caller filters
 }
 
 static void scanCallback(ble_gap_evt_adv_report_t *report) {
@@ -353,9 +357,16 @@ static void scanCallback(ble_gap_evt_adv_report_t *report) {
           report, BLE_GAP_AD_TYPE_SHORT_LOCAL_NAME,
           (uint8_t *)name, sizeof(name) - 1);
     }
-    Serial.printf("[scan] %02X:%02X:%02X:%02X:%02X:%02X rssi=%4d csc=%s name='%s'\n",
-                  a[5], a[4], a[3], a[2], a[1], a[0], report->rssi,
-                  hasCsc ? "YES" : "no ", name);
+    // Once the address table is full every advert reads as new, and a dense
+    // BLE environment would bury the interesting line. Anonymous unnamed
+    // devices are phones and beacons; a speed sensor has a name or announces
+    // 0x1816, so past that point only those are worth printing.
+    bool interesting = hasCsc || name[0] != '\0';
+    if (scanSeenCount < SCAN_LOG_MAX || interesting) {
+      Serial.printf("[scan] %02X:%02X:%02X:%02X:%02X:%02X rssi=%4d csc=%s name='%s'\n",
+                    a[5], a[4], a[3], a[2], a[1], a[0], report->rssi,
+                    hasCsc ? "YES" : "no ", name);
+    }
   }
 
   if (hasCsc) {
