@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, TextInput, StyleSheet, ScrollView, Alert,
 } from 'react-native';
@@ -45,6 +45,10 @@ export function DeviceScreen({ navigation, route }: Props) {
   const [eventClockText, setEventClockText] = useState('');
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [busy, setBusy] = useState<string | null>(null);
+  // One auto-sync per connection. Reset on disconnect so a later reconnect
+  // syncs again.
+  const autoSyncedRef = useRef(false);
+  const [autoSyncNote, setAutoSyncNote] = useState<string | null>(null);
 
   useEffect(() => {
     const segs = getSegments(routeId);
@@ -85,6 +89,49 @@ export function DeviceScreen({ navigation, route }: Props) {
       setBusy(null);
     }
   }
+
+  // On connect, hand the unit everything it needs in one go: the route sheet,
+  // the wheel circumference, and the armed row start. Everything was already
+  // set up on the phone before the unit was even switched on.
+  useEffect(() => {
+    if (connectionState !== 'connected') {
+      autoSyncedRef.current = false;
+      setAutoSyncNote(null);
+      return;
+    }
+    if (autoSyncedRef.current) return;
+    if (segments.length === 0 || !status) return;
+
+    // Never clobber a ride already under way. A mid-ride BLE dropout and
+    // reconnect must not re-push the route or re-arm the start.
+    if (status.rideState !== 'idle') {
+      autoSyncedRef.current = true;
+      setAutoSyncNote('Ride already under way on the unit — left it alone.');
+      return;
+    }
+
+    autoSyncedRef.current = true;
+    const mm = parseInt(circumferenceText, 10);
+    const armable = keyTimeEpochMs !== null && savedRow !== null;
+
+    run('sync', async () => {
+      await deviceMgr.pushRoute(segments);
+      if (!isNaN(mm) && mm >= 1500 && mm <= 3000) {
+        await deviceMgr.setWheelCircumference(mm);
+      }
+      if (keyTimeEpochMs !== null && savedRow !== null) {
+        await deviceMgr.armRowStart(
+          eventTimeToPhoneEpochMs(keyTimeEpochMs, offsetMs),
+          savedRow
+        );
+      }
+      setAutoSyncNote(
+        armable
+          ? 'Route pushed and row start armed.'
+          : 'Route pushed. Set a key time and row to arm the start.'
+      );
+    });
+  }, [connectionState, status, segments, keyTimeEpochMs, savedRow, offsetMs, circumferenceText]);
 
   function pushRoute() {
     run('push', () => deviceMgr.pushRoute(segments));
@@ -288,6 +335,11 @@ export function DeviceScreen({ navigation, route }: Props) {
             {connected ? `Connected — ${deviceName}` : 'Not connected'}
           </Text>
           {lastError ? <Text style={styles.error}>{lastError}</Text> : null}
+          {busy === 'sync' ? (
+            <Text style={styles.hint}>Sending route and start time…</Text>
+          ) : autoSyncNote ? (
+            <Text style={styles.hint}>{autoSyncNote}</Text>
+          ) : null}
           <TouchableOpacity
             style={[styles.button, connectionState === 'scanning' && styles.disabled]}
             disabled={connectionState === 'scanning' || connectionState === 'connecting'}
