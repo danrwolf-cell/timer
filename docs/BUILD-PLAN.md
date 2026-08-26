@@ -123,9 +123,8 @@ Implemented in `firmware/enduro-feather/enduro-feather.ino`:
   displayed deviation only.
 - `UP_BUTTON_PIN` / `DOWN_BUTTON_PIN` (pins 9/10) nudge `cumulativeMi`
   directly by `ADJUST_STEP_MI` (0.01 mi) per tap, auto-repeating on hold —
-  the Autocal equivalent. Device-only: nothing on the phone side
-  (`ride-store.ts`) does distance correction yet, since the phone live
-  screen is a demo harness and this only matters for the real course ride.
+  the Autocal equivalent. Device-only, and permanently so: the phone has no
+  ride surface to correct.
 
 All three debounced with a shared helper in `loop()`. Wiring in
 `docs/HARDWARE.md`.
@@ -151,18 +150,17 @@ Target remote for first validation: the BT shutter / media remote family (AB Shu
 
 ---
 
-### Priority 4b — iOS BLE backgrounding (field test, device required)
+### Priority 4b — iOS BLE backgrounding ✅ MOOT (August 2026)
 
-`react-native-ble-plx` uses Core Bluetooth's `bluetooth-central` background mode. When the app goes to background, Core Bluetooth continues delivering notifications but with coalesced timing — batched with stale timestamps rather than real-time. If iOS suspends the JS runtime, the reconnect logic in `ble-manager.ts` may not execute on schedule.
+Closed by deletion, not by testing. This asked whether Core Bluetooth would
+keep delivering CSC notifications to a backgrounded phone at a usable rate.
+The phone no longer connects to the speed sensor at all — the device does,
+and it is an always-on dedicated unit with no OS to suspend it. The failure
+mode this priority existed to guard against cannot happen any more.
 
-This is not a Phase 2 discovery item. It directly affects whether the phone app is trustworthy in a race scenario and needs to be tested on real hardware before riding:
-
-- Add `bluetooth-central` background mode to `app.json` / `Info.plist`
-- Test: connect sensor, lock phone, ride for 5 minutes, disconnect and reconnect sensor mid-ride — confirm SENSOR LOST fires and reconnect completes without the app in foreground
-- Test: lock phone in a pocket, confirm `raw_csc_log` entries accumulate at the expected ~1 Hz rate (not coalesced into large gaps)
-- If coalescing is a problem, the fix is to use `wall_clock_ms` at receipt for elapsed-time calculation rather than BLE event timestamps — but measure first, don't assume
-
-These are separate tasks from 4a. 4a can be closed with a unit test. 4b can only be closed with a field test. Bundling them tends to mean 4b gets deferred under cover of 4a being done.
+The `bluetooth-central` background mode stays in `app.json`: the phone still
+talks to the handlebar unit over BLE, and a route push or log pull should
+survive the screen locking.
 
 ---
 
@@ -214,7 +212,7 @@ Goal: a working app you can ride with that produces trustworthy numbers and a ra
 - [x] **Replay harness (`src/engine/replay.ts`) + snapshot test** ← Priority 1
 - [x] **Speed sanity clamp in CSC parser (power-cycle vs. rollover)** ← Priority 2
 - [x] **Auto-reset: boundary-crossing detector** ← Priority 4a (unit test, no device)
-- [ ] **iOS BLE backgrounding — prototype and field test** ← Priority 4b (device required)
+- [x] ~~iOS BLE backgrounding — prototype and field test~~ ← Priority 4b, moot: the phone no longer connects to the speed sensor
 - [x] ~~EAS build, TestFlight, ride with it~~ — superseded: the device is the ride surface, validated by log pull + replay rather than by riding the phone
 
 ### Phase 2 — Phone companion solidified
