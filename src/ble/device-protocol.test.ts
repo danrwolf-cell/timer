@@ -5,8 +5,11 @@ import {
   RideLogAssembler,
   packRouteSheet,
   packSetWheelCircumference,
+  packSetStartTime,
   packSimpleControl,
   packStartRide,
+  riderStartEpochSeconds,
+  DEFAULT_ROW_INTERVAL_SECONDS,
   parseDeviceStatus,
   parseRideLogPacket,
   parseRouteSheet,
@@ -289,5 +292,63 @@ describe('device status', () => {
     bytes[0] = PROTOCOL_VERSION;
     bytes[3] = 0xff;
     expect(parseDeviceStatus(bytes).batteryPct).toBeNull();
+  });
+});
+
+describe('row start time', () => {
+  // Row N leaves N minutes after the event key time: on an 8:00 key time,
+  // row 1 goes at 8:01 and row 12 at 8:12.
+  const KEY = 1_756_454_400; // 2026-08-29 08:00:00 UTC
+
+  it('puts row 0 on the key time itself', () => {
+    expect(riderStartEpochSeconds(KEY, 0)).toBe(KEY);
+  });
+
+  it('adds one minute per row', () => {
+    expect(riderStartEpochSeconds(KEY, 1)).toBe(KEY + 60);
+    expect(riderStartEpochSeconds(KEY, 12)).toBe(KEY + 12 * 60);
+    expect(riderStartEpochSeconds(KEY, 255)).toBe(KEY + 255 * 60);
+  });
+
+  it('honours a non-default row interval', () => {
+    expect(riderStartEpochSeconds(KEY, 3, 30)).toBe(KEY + 90);
+    expect(DEFAULT_ROW_INTERVAL_SECONDS).toBe(60);
+  });
+
+  it('rejects rows outside a byte', () => {
+    expect(() => riderStartEpochSeconds(KEY, -1)).toThrow();
+    expect(() => riderStartEpochSeconds(KEY, 256)).toThrow();
+    expect(() => riderStartEpochSeconds(KEY, 1.5)).toThrow();
+  });
+});
+
+describe('packSetStartTime', () => {
+  it('packs opcode, both clocks little-endian, and the row', () => {
+    const bytes = packSetStartTime(0x11223344, 0x55667788, 12);
+    expect(Array.from(bytes)).toEqual([
+      CONTROL_OPCODES.SET_START_TIME,
+      0x44, 0x33, 0x22, 0x11,
+      0x88, 0x77, 0x66, 0x55,
+      12,
+    ]);
+  });
+
+  it('truncates fractional seconds', () => {
+    const bytes = packSetStartTime(10.9, 20.9, 1);
+    expect(Array.from(bytes.slice(1, 5))).toEqual([10, 0, 0, 0]);
+    expect(Array.from(bytes.slice(5, 9))).toEqual([20, 0, 0, 0]);
+  });
+
+  it('rejects an out-of-range row', () => {
+    expect(() => packSetStartTime(0, 0, 256)).toThrow();
+  });
+});
+
+describe('countdown ride state', () => {
+  it('decodes ride_state 3 as countdown', () => {
+    const bytes = new Uint8Array(12);
+    bytes[0] = PROTOCOL_VERSION;
+    bytes[2] = 3;
+    expect(parseDeviceStatus(bytes).rideState).toBe('countdown');
   });
 });

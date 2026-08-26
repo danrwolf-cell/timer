@@ -27,6 +27,8 @@ import {
   parseDeviceStatus,
   parseRideLogPacket,
   rideLogCrc,
+  riderStartEpochSeconds,
+  DEFAULT_ROW_INTERVAL_SECONDS,
   PROTOCOL_VERSION,
 } from '../../src/ble/device-protocol';
 
@@ -467,6 +469,38 @@ static const uint16_t crc16_check_value = ${crc16(Uint8Array.from('123456789', c
 // ---------------------------------------------------------------------------
 // Header assembly
 
+// Row start time: rs_rider_start_epoch() vs riderStartEpochSeconds().
+// 8:00:00 AM UTC on 2026-08-29 is the reference key time; rows span the
+// usual field plus the 0 and 255 boundaries.
+const ROW_START_CASES: Array<[number, number]> = [
+  [1_756_454_400, 0],
+  [1_756_454_400, 1],
+  [1_756_454_400, 12],
+  [1_756_454_400, 60],
+  [1_756_454_400, 255],
+  [0, 1],
+  [4_294_000_000, 3],
+];
+
+function emitRowStartVectors(): string {
+  const rows = ROW_START_CASES.map(([key, row]) => {
+    const exp = riderStartEpochSeconds(key, row, DEFAULT_ROW_INTERVAL_SECONDS);
+    return `  { .key_time_epoch_s = ${key}u, .row = ${row}, .row_interval_s = ${DEFAULT_ROW_INTERVAL_SECONDS}, .expected = ${exp}u },`;
+  }).join('\n');
+  return `typedef struct {
+  uint32_t key_time_epoch_s;
+  uint8_t row;
+  uint16_t row_interval_s;
+  uint32_t expected;
+} row_start_vector_t;
+
+static const row_start_vector_t row_start_vectors[] = {
+${rows}
+};
+static const size_t row_start_vector_count = sizeof(row_start_vectors) / sizeof(row_start_vectors[0]);
+`;
+}
+
 function main(): void {
   const cscSequence = buildCscSequence().map(emitCscCase).join('\n');
   const cscDirect = buildCscDirectCases().map(emitCscCase).join('\n');
@@ -583,6 +617,7 @@ ${emitReplay('replay_power_cycle', buildPowerCycleCorpus())}
 ${emitRouteSheetVectors()}
 ${emitStatusVectors()}
 ${emitRideLogVectors()}
+${emitRowStartVectors()}
 #endif /* ENDURO_TEST_VECTORS_H */
 `;
 

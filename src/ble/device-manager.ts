@@ -5,9 +5,11 @@ import type { Segment } from '../engine/pace-engine';
 import {
   chunkRouteSheet,
   packRouteSheet,
+  packSetStartTime,
   packSetWheelCircumference,
   packSimpleControl,
   packStartRide,
+  riderStartEpochSeconds,
   parseDeviceStatus,
   RideLogAssembler,
   type RideLogRow,
@@ -163,6 +165,21 @@ class EnduroDeviceManager {
     const epochMs = Date.now();
     await this.writeControl(packStartRide(epochMs / 1000));
     useDeviceStore.getState().setRideStartEpochMs(epochMs);
+  }
+
+  /**
+   * Arm the row countdown. The device counts down to (key time + row minutes)
+   * and starts the ride clock itself, so the deviation is anchored to the
+   * official minute rather than to whenever someone presses a button.
+   */
+  async armRowStart(keyTimeEpochMs: number, row: number): Promise<void> {
+    const nowMs = Date.now();
+    await this.writeControl(
+      packSetStartTime(nowMs / 1000, keyTimeEpochMs / 1000, row)
+    );
+    useDeviceStore
+      .getState()
+      .setRideStartEpochMs(riderStartEpochSeconds(keyTimeEpochMs / 1000, row) * 1000);
   }
 
   async endRide(): Promise<void> {

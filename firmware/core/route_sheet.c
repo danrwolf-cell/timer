@@ -133,3 +133,11 @@ void rs_encode_ride_log_end(uint8_t out[RS_LOG_END_BYTES], uint8_t seq,
   write_u16(out + 2, total_rows);
   write_u16(out + 4, crc);
 }
+
+/* ------------------------------------------------------------------ */
+/* Row start time */
+
+uint32_t rs_rider_start_epoch(uint32_t key_time_epoch_s, uint8_t row,
+                              uint16_t row_interval_s) {
+  return key_time_epoch_s + (uint32_t)row * (uint32_t)row_interval_s;
+}

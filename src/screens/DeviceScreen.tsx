@@ -27,6 +27,8 @@ export function DeviceScreen({ navigation, route }: Props) {
   } = useEnduroDevice();
   const [segments, setSegments] = useState<Segment[]>([]);
   const [circumferenceText, setCircumferenceText] = useState('2183');
+  const [keyTimeText, setKeyTimeText] = useState('08:00');
+  const [rowText, setRowText] = useState('1');
   const [busy, setBusy] = useState<string | null>(null);
 
   useEffect(() => {
@@ -67,6 +69,40 @@ export function DeviceScreen({ navigation, route }: Props) {
     });
   }
 
+  // Key time is entered as local HH:MM and resolved against today's date.
+  function parseKeyTimeEpochMs(text: string): number | null {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(text.trim());
+    if (!m) return null;
+    const hours = parseInt(m[1], 10);
+    const minutes = parseInt(m[2], 10);
+    if (hours > 23 || minutes > 59) return null;
+    const d = new Date();
+    d.setHours(hours, minutes, 0, 0);
+    return d.getTime();
+  }
+
+  function armRowStart() {
+    const mm = parseInt(circumferenceText, 10);
+    if (isNaN(mm) || mm < 1500 || mm > 3000) {
+      Alert.alert('Enter a wheel circumference between 1500\u20133000 mm');
+      return;
+    }
+    const keyTimeEpochMs = parseKeyTimeEpochMs(keyTimeText);
+    if (keyTimeEpochMs === null) {
+      Alert.alert('Enter the official key time as HH:MM (24-hour)');
+      return;
+    }
+    const row = parseInt(rowText, 10);
+    if (isNaN(row) || row < 0 || row > 255) {
+      Alert.alert('Enter a row between 0 and 255');
+      return;
+    }
+    run('arm', async () => {
+      await deviceMgr.setWheelCircumference(mm);
+      await deviceMgr.armRowStart(keyTimeEpochMs, row);
+    });
+  }
+
   function pullLog() {
     run('pull', async () => {
       const rows = await deviceMgr.pullRideLog();
@@ -92,6 +128,7 @@ export function DeviceScreen({ navigation, route }: Props) {
 
   const connected = connectionState === 'connected';
   const riding = status?.rideState === 'riding';
+  const countingDown = status?.rideState === 'countdown';
   const logReady = status?.rideState === 'log_ready';
 
   return (
@@ -169,7 +206,7 @@ export function DeviceScreen({ navigation, route }: Props) {
         {connected && status?.routeLoaded && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Ride</Text>
-            {!riding && (
+            {!riding && !countingDown && (
               <>
                 <Text style={styles.cardBody}>Wheel circumference (mm)</Text>
                 <TextInput
@@ -178,14 +215,41 @@ export function DeviceScreen({ navigation, route }: Props) {
                   value={circumferenceText}
                   onChangeText={setCircumferenceText}
                 />
+                <Text style={styles.cardBody}>Official key time (HH:MM)</Text>
+                <TextInput
+                  style={styles.input}
+                  autoCapitalize="none"
+                  value={keyTimeText}
+                  onChangeText={setKeyTimeText}
+                />
+                <Text style={styles.cardBody}>Your row</Text>
+                <TextInput
+                  style={styles.input}
+                  keyboardType="number-pad"
+                  value={rowText}
+                  onChangeText={setRowText}
+                />
                 <TouchableOpacity
                   style={[styles.goButton, busy !== null && styles.disabled]}
                   disabled={busy !== null}
+                  onPress={armRowStart}
+                >
+                  <Text style={styles.goText}>ARM ROW START</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.button, busy !== null && styles.disabled]}
+                  disabled={busy !== null}
                   onPress={startRide}
                 >
-                  <Text style={styles.goText}>START RIDE</Text>
+                  <Text style={styles.buttonText}>Start now (no countdown)</Text>
                 </TouchableOpacity>
               </>
+            )}
+            {countingDown && (
+              <Text style={styles.cardBody}>
+                Counting down on the device. RESET on the unit re-anchors the
+                start if the official says go at a different moment.
+              </Text>
             )}
             {riding && (
               <>

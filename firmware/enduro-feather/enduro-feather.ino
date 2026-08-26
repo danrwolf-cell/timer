@@ -140,6 +140,20 @@ static double wheelCircumferenceMm = CSC_DEFAULT_WHEEL_CIRCUMFERENCE_MM;
 static volatile uint8_t sensorStatus = RS_SENSOR_DISCONNECTED;
 static uint32_t resetFlashUntilMs = 0;
 
+// Row start / countdown. The device has no RTC: SET_START_TIME hands it the
+// phone's wall clock, which anchors millis() to epoch for as long as it stays
+// powered. rideStartMs is the millis() value at which the ride clock starts —
+// it sits in the future while counting down.
+static uint32_t epochAtSyncS = 0;
+static uint32_t millisAtSync = 0;
+static bool clockSynced = false;
+static uint32_t riderStartEpochS = 0;
+static uint8_t riderRow = 0;
+
+// Window after the scheduled start in which RESET still means "the official
+// just said go" (re-anchor the start) rather than "I hit a check" (flash only).
+#define RESET_START_WINDOW_MS 60000
+
 // Ride log: RAM buffer, ~2 h at 1 Hz. 10 bytes/row on the wire, 12 in RAM.
 #define RIDE_LOG_CAPACITY 7200
 static rs_log_row_t rideLog[RIDE_LOG_CAPACITY];
@@ -215,6 +229,42 @@ static void loadPersistedRoute() {
 // the last known distance so the hero number keeps ticking between wheel
 // notifications — identical to the phone's value at every notification
 // timestamp, which is what the replay cross-validation compares.
+
+static uint32_t currentEpochS() {
+  if (!clockSynced) return 0;
+  return epochAtSyncS + (millis() - millisAtSync) / 1000;
+}
+
+// Seconds remaining until the scheduled row start; 0 once it has passed.
+static int32_t countdownSeconds() {
+  int32_t remainMs = (int32_t)(rideStartMs - millis());
+  return remainMs > 0 ? (remainMs + 999) / 1000 : 0;
+}
+
+// Shared by the CONTROL opcode and the hardwired button. During the countdown
+// (or just after the scheduled start) this anchors the ride to the actual go
+// signal, absorbing drift between the device clock and the official one, and
+// zeroes distance and the log because the ride truly starts here. Later in the
+// ride it is an AMA reset checkpoint: flash only, no re-anchoring.
+static void triggerReset() {
+  uint32_t now = millis();
+  bool atStart = (rideState == RS_RIDE_COUNTDOWN) ||
+                 (rideState == RS_RIDE_RIDING && (int32_t)(now - rideStartMs) >= 0 &&
+                  (now - rideStartMs) <= RESET_START_WINDOW_MS);
+
+  if (atStart) {
+    rideStartMs = now;
+    rideEpochS = currentEpochS();
+    cumulativeMi = 0.0;
+    currentSpeedMph = 0.0;
+    segmentIndex = 0;
+    cscHasState = false;
+    rideLogCount = 0;
+    rideLogOverflowed = false;
+    rideState = RS_RIDE_RIDING;
+  }
+  resetFlashUntilMs = now + 3000;
+}
 
 static double currentDeviationSeconds() {
   if (rideState != RS_RIDE_RIDING || !routeLoaded) return 0.0;
@@ -366,7 +416,7 @@ static void controlWriteCallback(uint16_t connHandle, BLECharacteristic *chr,
       }
       break;
     case 0x03:  // MANUAL_RESET — parity with the phone: momentary zero
-      resetFlashUntilMs = millis() + 3000;
+      triggerReset();
       break;
     case 0x04:  // SET_WHEEL_CIRC [mm u16]
       if (len >= 3) {
@@ -376,6 +426,32 @@ static void controlWriteCallback(uint16_t connHandle, BLECharacteristic *chr,
       break;
     case 0x05:  // REQUEST_RIDE_LOG
       logStreamRequested = true;
+      break;
+    case 0x07:  // SET_START_TIME [now_epoch_s u32][key_epoch_s u32][row u8]
+      if (len >= 10) {
+        uint32_t nowEpoch = (uint32_t)data[1] | ((uint32_t)data[2] << 8) |
+                            ((uint32_t)data[3] << 16) | ((uint32_t)data[4] << 24);
+        uint32_t keyEpoch = (uint32_t)data[5] | ((uint32_t)data[6] << 8) |
+                            ((uint32_t)data[7] << 16) | ((uint32_t)data[8] << 24);
+        riderRow = data[9];
+        riderStartEpochS =
+            rs_rider_start_epoch(keyEpoch, riderRow, RS_DEFAULT_ROW_INTERVAL_S);
+        epochAtSyncS = nowEpoch;
+        millisAtSync = millis();
+        clockSynced = true;
+
+        int64_t deltaS = (int64_t)riderStartEpochS - (int64_t)nowEpoch;
+        rideStartMs = (uint32_t)((int64_t)millisAtSync + deltaS * 1000);
+        rideEpochS = riderStartEpochS;
+
+        cumulativeMi = 0.0;
+        currentSpeedMph = 0.0;
+        segmentIndex = 0;
+        cscHasState = false;
+        rideLogCount = 0;
+        rideLogOverflowed = false;
+        rideState = deltaS > 0 ? RS_RIDE_COUNTDOWN : RS_RIDE_RIDING;
+      }
       break;
     case 0x06:  // CLEAR_RIDE_LOG
       rideLogCount = 0;
@@ -545,6 +621,17 @@ static void render() {
     return;
   }
 
+  if (rideState == RS_RIDE_COUNTDOWN) {
+    int32_t remain = countdownSeconds();
+    snprintf(line, sizeof(line), "ROW %u", riderRow);
+    drawCentered(line, 40, 3);
+    snprintf(line, sizeof(line), "%ld:%02ld", (long)(remain / 60), (long)(remain % 60));
+    drawCentered(line, 88, 11);
+    drawCentered("TO START", 190, 3);
+    display.refresh();
+    return;
+  }
+
   if (rideState != RS_RIDE_RIDING) {
     drawCentered(rideState == RS_RIDE_LOG_READY ? "LOG READY" : "READY", 90, 5);
     snprintf(line, sizeof(line), "%u segments", route.count);
@@ -639,7 +726,7 @@ static void adjustDistance(double deltaMi) {
 
 static void pollButtons() {
   if (pollButton(resetButton, false)) {
-    resetFlashUntilMs = millis() + 3000;
+    triggerReset();
   }
   if (pollButton(upButton, true)) {
     adjustDistance(ADJUST_STEP_MI);
@@ -794,6 +881,13 @@ void loop() {
   }
 
   pollButtons();
+
+  // Scheduled row start reached: the ride clock begins on its own, so the
+  // deviation is anchored to the official minute whether or not anyone
+  // touches a button. RESET within RESET_START_WINDOW_MS re-anchors it.
+  if (rideState == RS_RIDE_COUNTDOWN && (int32_t)(now - rideStartMs) >= 0) {
+    rideState = RS_RIDE_RIDING;
+  }
 
   if (routePersistPending) {
     routePersistPending = false;

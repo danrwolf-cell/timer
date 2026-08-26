@@ -75,7 +75,21 @@ progress.
 0x04 SET_WHEEL_CIRC [mm u16]
 0x05 REQUEST_RIDE_LOG             begin RIDE_LOG stream
 0x06 CLEAR_RIDE_LOG
+0x07 SET_START_TIME [now_epoch_s u32][key_time_epoch_s u32][row u8]
+                                  arm the row countdown. The device has no
+                                  RTC, so now_epoch_s anchors its millis() to
+                                  wall clock. Rider start = key time + row x 60 s
+                                  (rs_rider_start_epoch / riderStartEpochSeconds).
+                                  Zeroes distance and the log, then enters
+                                  ride_state 3 (countdown), or 1 (riding) if the
+                                  start time has already passed.
 ```
+
+While counting down, MANUAL_RESET (0x03) — or the hardwired RESET button —
+means "the official said go": it re-anchors the ride start to now and zeroes
+distance and the log, absorbing drift between the device clock and the
+official one. The same applies for 60 s after the scheduled start. Later in
+the ride, RESET is an AMA reset checkpoint and only flashes the display.
 
 ## RIDE_LOG stream (device → phone)
 
@@ -102,7 +116,7 @@ what the firmware displayed live.
 ```
 [version u8 = 0x01]
 [sensor_status u8]    0 disconnected, 1 connecting, 2 connected, 3 lost
-[ride_state u8]       0 idle, 1 riding, 2 log_ready
+[ride_state u8]       0 idle, 1 riding, 2 log_ready, 3 countdown
 [battery_pct u8]      0-100, 0xFF unknown
 [deviation_s i16]     current deviation, seconds, clamped to ±32767
 [distance u32]        cumulative distance, 0.001 mi units

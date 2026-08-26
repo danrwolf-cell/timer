@@ -156,13 +156,59 @@ export const CONTROL_OPCODES = {
   SET_WHEEL_CIRC: 0x04,
   REQUEST_RIDE_LOG: 0x05,
   CLEAR_RIDE_LOG: 0x06,
+  SET_START_TIME: 0x07,
 } as const;
+
+// Enduro rows leave one minute apart. Row N starts N minutes after the
+// event's official key time, so row 1 on an 8:00 key time leaves at 8:01.
+export const DEFAULT_ROW_INTERVAL_SECONDS = 60;
+
+/**
+ * Absolute start time for a rider's row, in epoch seconds.
+ *
+ * Pure: the device computes the same value from the same inputs (see
+ * rs_rider_start_epoch in firmware/core/route_sheet.c), and the vector suite
+ * checks the two against each other.
+ */
+export function riderStartEpochSeconds(
+  keyTimeEpochSeconds: number,
+  row: number,
+  rowIntervalSeconds: number = DEFAULT_ROW_INTERVAL_SECONDS
+): number {
+  if (!Number.isInteger(row) || row < 0 || row > 0xff) {
+    throw new Error(`row out of range: ${row}`);
+  }
+  return Math.floor(keyTimeEpochSeconds) + row * rowIntervalSeconds;
+}
 
 export function packStartRide(epochSeconds: number): Uint8Array {
   const s = Math.floor(epochSeconds) >>> 0;
   return Uint8Array.from([
     CONTROL_OPCODES.START_RIDE,
     s & 0xff, (s >>> 8) & 0xff, (s >>> 16) & 0xff, (s >>> 24) & 0xff,
+  ]);
+}
+
+/**
+ * SET_START_TIME carries the phone's current wall clock alongside the event
+ * key time, so the device can anchor its millis() to epoch and count down
+ * without an RTC of its own.
+ */
+export function packSetStartTime(
+  nowEpochSeconds: number,
+  keyTimeEpochSeconds: number,
+  row: number
+): Uint8Array {
+  if (!Number.isInteger(row) || row < 0 || row > 0xff) {
+    throw new Error(`row out of range: ${row}`);
+  }
+  const now = Math.floor(nowEpochSeconds) >>> 0;
+  const key = Math.floor(keyTimeEpochSeconds) >>> 0;
+  return Uint8Array.from([
+    CONTROL_OPCODES.SET_START_TIME,
+    now & 0xff, (now >>> 8) & 0xff, (now >>> 16) & 0xff, (now >>> 24) & 0xff,
+    key & 0xff, (key >>> 8) & 0xff, (key >>> 16) & 0xff, (key >>> 24) & 0xff,
+    row & 0xff,
   ]);
 }
 
@@ -299,7 +345,7 @@ export class RideLogAssembler {
 // DEVICE_STATUS
 
 export type DeviceSensorStatus = 'disconnected' | 'connecting' | 'connected' | 'lost';
-export type DeviceRideState = 'idle' | 'riding' | 'log_ready';
+export type DeviceRideState = 'idle' | 'riding' | 'log_ready' | 'countdown';
 
 export interface DeviceStatus {
   sensorStatus: DeviceSensorStatus;
@@ -313,7 +359,7 @@ export interface DeviceStatus {
 }
 
 const SENSOR_STATUSES: DeviceSensorStatus[] = ['disconnected', 'connecting', 'connected', 'lost'];
-const RIDE_STATES: DeviceRideState[] = ['idle', 'riding', 'log_ready'];
+const RIDE_STATES: DeviceRideState[] = ['idle', 'riding', 'log_ready', 'countdown'];
 
 export const DEVICE_STATUS_BYTES = 12;
 

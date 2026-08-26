@@ -67,7 +67,16 @@ int rs_decode_route_sheet(const uint8_t *payload, size_t len, rs_route_t *out);
 
 enum { RS_SENSOR_DISCONNECTED = 0, RS_SENSOR_CONNECTING = 1,
        RS_SENSOR_CONNECTED = 2, RS_SENSOR_LOST = 3 };
-enum { RS_RIDE_IDLE = 0, RS_RIDE_RIDING = 1, RS_RIDE_LOG_READY = 2 };
+enum { RS_RIDE_IDLE = 0, RS_RIDE_RIDING = 1, RS_RIDE_LOG_READY = 2,
+       RS_RIDE_COUNTDOWN = 3 };
+
+/* Enduro rows leave one minute apart: row N starts N minutes after the
+   event's official key time. Mirrors riderStartEpochSeconds() in
+   src/ble/device-protocol.ts. */
+#define RS_DEFAULT_ROW_INTERVAL_S 60
+
+uint32_t rs_rider_start_epoch(uint32_t key_time_epoch_s, uint8_t row,
+                              uint16_t row_interval_s);
 
 #define RS_STATUS_BYTES 12
 #define RS_BATTERY_UNKNOWN 0xFF

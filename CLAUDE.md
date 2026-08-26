@@ -59,6 +59,7 @@ If you change a golden-reference TS module: `make -C firmware/test vectors && ma
 - **Power-cycle vs. rollover**: negative `deltaRevs` — if `prev.cumulativeRevolutions >= 0xFF000000` it's a genuine 32-bit rollover; otherwise it's a power-cycle and state is re-baselined with no update emitted
 - **Speed ceiling**: 150 mph backstop after rollover correction
 - **Auto-reset**: `crossedReset(segments, prevIndex, currentIndex)` walks every segment entered since last update; fires if any has `isReset: true`
+- **Row start time**: rider start = key time + (row x 60 s). `riderStartEpochSeconds` (TS) and `rs_rider_start_epoch` (C), vector-validated. Row N leaves N minutes after key time, so row 1 on an 08:00 key time goes at 08:01
 
 ---
 
@@ -76,7 +77,7 @@ All schema changes must use additive PRAGMA-guarded ALTER TABLE migrations (see 
 
 ## Current state
 
-**Tests: 109/109 passing** (`npx jest`). **Firmware host suite: 1418 checks** (`make -C firmware/test`).
+**Tests: 117/117 passing** (`npx jest`). **Firmware host suite: 1425 checks** (`make -C firmware/test`).
 
 Phase 1 priorities complete:
 - [x] Raw CSC log capture (`raw_csc_log` table + BLE manager queue)

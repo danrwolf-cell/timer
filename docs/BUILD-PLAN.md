@@ -232,6 +232,7 @@ Goal: a working app you can ride with that produces trustworthy numbers and a ra
 - [x] Hardwired RESET/UP/DOWN buttons (Priority 3 — no BLE remote, see above)
 - [ ] Board bring-up on the physical hardware (flash, wire, run the `docs/HARDWARE.md` checklist) ← **you are here**
 - [ ] Field cross-validation: ride, pull the log, compare live-displayed deviation to phone replay
+- [x] Row start countdown: phone arms key time + row, device counts down and starts the ride clock on the official minute (CONTROL 0x07, ride_state 3). RESET at the line re-anchors for clock drift
 - [ ] Sharp Memory LCD draw spec round 2: per-check DQ states with max_late_seconds, time-format polish (current renderer is functional)
 - [ ] Ride log to QSPI flash (survives power-off; RAM-only today, ~2 h at 1 Hz)
 

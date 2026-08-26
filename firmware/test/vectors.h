@@ -929,4 +929,22 @@ static const uint16_t ride_log_expected_crc = 18699;
 /* Standard CRC-16/CCITT-FALSE check value for "123456789" */
 static const uint16_t crc16_check_value = 10673;
 
+typedef struct {
+  uint32_t key_time_epoch_s;
+  uint8_t row;
+  uint16_t row_interval_s;
+  uint32_t expected;
+} row_start_vector_t;
+
+static const row_start_vector_t row_start_vectors[] = {
+  { .key_time_epoch_s = 1756454400u, .row = 0, .row_interval_s = 60, .expected = 1756454400u },
+  { .key_time_epoch_s = 1756454400u, .row = 1, .row_interval_s = 60, .expected = 1756454460u },
+  { .key_time_epoch_s = 1756454400u, .row = 12, .row_interval_s = 60, .expected = 1756455120u },
+  { .key_time_epoch_s = 1756454400u, .row = 60, .row_interval_s = 60, .expected = 1756458000u },
+  { .key_time_epoch_s = 1756454400u, .row = 255, .row_interval_s = 60, .expected = 1756469700u },
+  { .key_time_epoch_s = 0u, .row = 1, .row_interval_s = 60, .expected = 60u },
+  { .key_time_epoch_s = 4294000000u, .row = 3, .row_interval_s = 60, .expected = 4294000180u },
+};
+static const size_t row_start_vector_count = sizeof(row_start_vectors) / sizeof(row_start_vectors[0]);
+
 #endif /* ENDURO_TEST_VECTORS_H */
