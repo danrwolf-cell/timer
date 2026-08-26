@@ -198,7 +198,11 @@ static void loadPersistedRoute() {
   if (len > 0 && len <= XFER_MAX) {
     static uint8_t buf[XFER_MAX];
     f.read(buf, len);
-    rs_route_t decoded;
+    // static, not a local: rs_route_t is ~3.6 KB (64 segments) and the
+    // Arduino loop task only gets a 4 KB stack (LOOP_STACK_SZ in the nRF52
+    // core), so a local here overflows the stack and hard-faults. Safe as a
+    // static because this runs once, from setup(), before BLE starts.
+    static rs_route_t decoded;
     if (rs_decode_route_sheet(buf, len, &decoded) == RS_OK) {
       adoptRoute(&decoded);
     }
@@ -321,7 +325,10 @@ static void routeSheetWriteCallback(uint16_t connHandle, BLECharacteristic *chr,
     case XFER_END: {
       if (!xferActive) return;
       xferActive = false;
-      rs_route_t decoded;
+      // static for the same reason as in loadPersistedRoute(): ~3.6 KB will
+      // not fit on this callback's stack. Its own static, not shared with the
+      // boot-time one, since this runs on the BLE task.
+      static rs_route_t decoded;
       if (rs_decode_route_sheet(xferBuf, xferExpected, &decoded) == RS_OK) {
         adoptRoute(&decoded);
         routePersistLen = xferExpected;
