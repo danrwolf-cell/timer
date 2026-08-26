@@ -205,6 +205,83 @@ export function DeviceScreen({ navigation, route }: Props) {
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.title}>Handlebar Unit</Text>
 
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Event Clock and Start</Text>
+
+          <View style={styles.syncBlock}>
+            <Text style={styles.startLabel}>EVENT CLOCK NOW</Text>
+            <Text style={styles.eventClock}>
+              {formatTimeOfDay(eventNowMs(nowMs, offsetMs))}
+            </Text>
+            <Text style={styles.startLabel}>
+              {offsetMs === 0
+                ? 'not synced \u2014 using this phone\u2019s clock'
+                : `offset ${formatOffset(offsetMs)} vs phone`}
+            </Text>
+          </View>
+
+          <Text style={styles.cardBody}>
+            Sync: type a time you are about to see on the official clock, then
+            tap SYNC the instant it reads that.
+          </Text>
+          <TextInput
+            style={styles.input}
+            autoCapitalize="none"
+            placeholder="07:35:00"
+            placeholderTextColor="#666"
+            value={eventClockText}
+            onChangeText={setEventClockText}
+          />
+          <View style={styles.syncRow}>
+            <TouchableOpacity style={[styles.button, styles.syncButton]} onPress={syncEventClock}>
+              <Text style={styles.buttonText}>SYNC</Text>
+            </TouchableOpacity>
+            {offsetMs !== 0 && (
+              <TouchableOpacity
+                style={[styles.button, styles.syncButton]}
+                onPress={clearEventClockSync}
+              >
+                <Text style={styles.buttonText}>Clear</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <Text style={styles.cardBody}>Official key time (HH:MM:SS, event clock)</Text>
+          <TextInput
+            style={styles.input}
+            autoCapitalize="none"
+            placeholder="09:00:00"
+            placeholderTextColor="#666"
+            value={keyTimeText}
+            onChangeText={setKeyTimeText}
+          />
+          <Text style={styles.cardBody}>Your row</Text>
+          <TextInput
+            style={styles.input}
+            keyboardType="number-pad"
+            value={rowText}
+            onChangeText={setRowText}
+          />
+          <TouchableOpacity style={styles.button} onPress={saveKeyTime}>
+            <Text style={styles.buttonText}>Save key time and row</Text>
+          </TouchableOpacity>
+
+          {myStartEventMs !== null && secondsToStart !== null && (
+            <View style={styles.startBlock}>
+              <Text style={styles.startLabel}>
+                Row {savedRow} starts {formatTimeOfDay(myStartEventMs)} event time
+              </Text>
+              <Text style={styles.startCountdown}>
+                {secondsToStart > 0 ? formatCountdown(secondsToStart) : 'PASSED'}
+              </Text>
+              <Text style={styles.startLabel}>
+                {secondsToStart > 0 ? 'to your start' : 'key time already passed today'}
+              </Text>
+            </View>
+          )}
+        </View>
+
+
         {/* Connection */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>
@@ -284,83 +361,6 @@ export function DeviceScreen({ navigation, route }: Props) {
                   value={circumferenceText}
                   onChangeText={setCircumferenceText}
                 />
-                <View style={styles.syncBlock}>
-                  <Text style={styles.startLabel}>EVENT CLOCK NOW</Text>
-                  <Text style={styles.eventClock}>
-                    {formatTimeOfDay(eventNowMs(nowMs, offsetMs))}
-                  </Text>
-                  <Text style={styles.startLabel}>
-                    {offsetMs === 0
-                      ? 'not synced \u2014 using this phone\u2019s clock'
-                      : `offset ${formatOffset(offsetMs)} vs phone`}
-                  </Text>
-                </View>
-                <Text style={styles.cardBody}>
-                  Sync: type a time you are about to see on the official clock,
-                  then tap SYNC the instant it reads that.
-                </Text>
-                <TextInput
-                  style={styles.input}
-                  autoCapitalize="none"
-                  placeholder="07:35:00"
-                  placeholderTextColor="#666"
-                  value={eventClockText}
-                  onChangeText={setEventClockText}
-                />
-                <View style={styles.syncRow}>
-                  <TouchableOpacity
-                    style={[styles.button, styles.syncButton]}
-                    onPress={syncEventClock}
-                  >
-                    <Text style={styles.buttonText}>SYNC</Text>
-                  </TouchableOpacity>
-                  {offsetMs !== 0 && (
-                    <TouchableOpacity
-                      style={[styles.button, styles.syncButton]}
-                      onPress={clearEventClockSync}
-                    >
-                      <Text style={styles.buttonText}>Clear</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-
-                <Text style={styles.cardBody}>Official key time (HH:MM:SS, event clock)</Text>
-                <TextInput
-                  style={styles.input}
-                  autoCapitalize="none"
-                  placeholder="08:00:00"
-                  value={keyTimeText}
-                  onChangeText={setKeyTimeText}
-                />
-                <Text style={styles.cardBody}>Your row</Text>
-                <TextInput
-                  style={styles.input}
-                  keyboardType="number-pad"
-                  value={rowText}
-                  onChangeText={setRowText}
-                />
-                <TouchableOpacity
-                  style={[styles.button, busy !== null && styles.disabled]}
-                  disabled={busy !== null}
-                  onPress={saveKeyTime}
-                >
-                  <Text style={styles.buttonText}>Save key time &amp; row</Text>
-                </TouchableOpacity>
-
-                {myStartEventMs !== null && secondsToStart !== null && (
-                  <View style={styles.startBlock}>
-                    <Text style={styles.startLabel}>
-                      Row {savedRow} starts {formatTimeOfDay(myStartEventMs)} event time
-                    </Text>
-                    <Text style={styles.startCountdown}>
-                      {secondsToStart > 0 ? formatCountdown(secondsToStart) : 'PASSED'}
-                    </Text>
-                    <Text style={styles.startLabel}>
-                      {secondsToStart > 0 ? 'to your start' : 'key time already passed today'}
-                    </Text>
-                  </View>
-                )}
-
                 <TouchableOpacity
                   style={[
                     styles.goButton,
@@ -371,6 +371,11 @@ export function DeviceScreen({ navigation, route }: Props) {
                 >
                   <Text style={styles.goText}>ARM ROW START ON DEVICE</Text>
                 </TouchableOpacity>
+                {myStartEventMs === null && (
+                  <Text style={styles.hint}>
+                    Set the key time and row above first.
+                  </Text>
+                )}
                 <TouchableOpacity
                   style={[styles.button, busy !== null && styles.disabled]}
                   disabled={busy !== null}
@@ -451,6 +456,7 @@ const styles = StyleSheet.create({
   title: { color: C.text, fontSize: 28, fontWeight: '800', marginBottom: 24 },
   card: { backgroundColor: C.card, borderRadius: 14, padding: 20, marginBottom: 16 },
   cardTitle: { color: C.accent, fontSize: 16, fontWeight: '700', marginBottom: 12 },
+  hint: { color: C.muted, fontSize: 12, textAlign: 'center', marginTop: 8 },
   cardBody: { color: C.text, fontSize: 15, lineHeight: 22, marginBottom: 12 },
   error: { color: '#e74c3c', marginBottom: 12 },
   button: { backgroundColor: C.accent, padding: 14, borderRadius: 10, alignItems: 'center', marginTop: 4 },
