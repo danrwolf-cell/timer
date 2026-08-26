@@ -321,9 +321,28 @@ static void cscNotifyCallback(BLEClientCharacteristic *chr, uint8_t *data,
   segmentIndex = pos.segment_index;
 }
 
+// Counter so the "still looking" line is periodic rather than per-advert.
+static uint32_t scanOtherSeen = 0;
+
 static void scanCallback(ble_gap_evt_adv_report_t *report) {
-  // Scanner is filtered on the CSC service UUID — connect to the first hit.
-  Bluefruit.Central.connect(report);
+  // Checked here rather than via Scanner.filterUuid() so that a sensor which
+  // advertises 0x1816 only in its SCAN_RSP is still matched, and so the serial
+  // log shows what is actually on the air when it isn't.
+  if (Bluefruit.Scanner.checkReportForUuid(report, cscService.uuid)) {
+    const uint8_t *a = report->peer_addr.addr;
+    Serial.printf("[scan] CSC sensor %02X:%02X:%02X:%02X:%02X:%02X rssi=%d\n",
+                  a[5], a[4], a[3], a[2], a[1], a[0], report->rssi);
+    Bluefruit.Central.connect(report);
+    return;  // no resume(): connecting takes over from scanning
+  }
+
+  if (++scanOtherSeen % 25 == 0) {
+    Serial.printf("[scan] %lu non-CSC adverts seen, still looking\n",
+                  (unsigned long)scanOtherSeen);
+  }
+  // SoftDevice pauses the scanner to deliver each report; without this it
+  // stops after the first device that isn't ours.
+  Bluefruit.Scanner.resume();
 }
 
 static void centralConnectCallback(uint16_t connHandle) {
@@ -331,7 +350,9 @@ static void centralConnectCallback(uint16_t connHandle) {
   if (cscService.discover(connHandle) && cscMeasurement.discover()) {
     cscMeasurement.enableNotify();
     sensorStatus = RS_SENSOR_CONNECTED;
+    Serial.println("[csc] connected, notifications enabled");
   } else {
+    Serial.println("[csc] service/characteristic discovery FAILED, dropping");
     Bluefruit.disconnect(connHandle);
     sensorStatus = RS_SENSOR_DISCONNECTED;
   }
@@ -339,7 +360,9 @@ static void centralConnectCallback(uint16_t connHandle) {
 
 static void centralDisconnectCallback(uint16_t connHandle, uint8_t reason) {
   (void)connHandle;
-  (void)reason;
+  // 0x08 supervision timeout (out of range / battery out), 0x13 remote user
+  // terminated (the sensor went to sleep), 0x3E failed to establish.
+  Serial.printf("[csc] disconnected, reason 0x%02X\n", reason);
   cscHasState = false;  // re-baseline on reconnect, same as the phone manager
   sensorStatus = RS_SENSOR_LOST;
   // Scanner.restartOnDisconnect(true) handles the reconnect scan.
@@ -851,8 +874,10 @@ void setup() {
 
   Bluefruit.Scanner.setRxCallback(scanCallback);
   Bluefruit.Scanner.restartOnDisconnect(true);
-  Bluefruit.Scanner.filterUuid(cscService.uuid);
-  Bluefruit.Scanner.useActiveScan(false);
+  // Active scanning so SCAN_RSP payloads are received: plenty of CSC sensors
+  // advertise the 0x1816 UUID only there, and a passive scan never sees it.
+  // The UUID match moved into scanCallback() (see there).
+  Bluefruit.Scanner.useActiveScan(true);
   Bluefruit.Scanner.setInterval(160, 80);  // 100 ms interval, 50 ms window
   Bluefruit.Scanner.start(0);              // scan forever
   bootStage("scanner");
