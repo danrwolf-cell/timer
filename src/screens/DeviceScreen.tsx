@@ -7,10 +7,13 @@ import type { RouteProp } from '@react-navigation/native';
 import type { RootStackParamList } from './types';
 import { useEnduroDevice } from '../ble/use-enduro-device';
 import { deviceMgr } from '../ble/device-manager';
-import { getSegments, getRouteStartConfig, setRouteStartConfig } from '../db/queries';
+import {
+  getSegments, getRouteStartConfig, setRouteStartConfig, setRouteClockOffset,
+} from '../db/queries';
 import { riderStartEpochSeconds } from '../ble/device-protocol';
 import {
   parseTimeOfDay, resolveTimeOfDay, formatTimeOfDay, formatCountdown,
+  clockOffsetMs, eventNowMs, eventTimeToPhoneEpochMs, formatOffset,
 } from '../lib/time';
 import { importDeviceRideLog } from '../db/import-ride';
 import type { Segment } from '../engine/pace-engine';
@@ -37,6 +40,9 @@ export function DeviceScreen({ navigation, route }: Props) {
   // ahead of the start; the device only learns about it at ARM time.
   const [keyTimeEpochMs, setKeyTimeEpochMs] = useState<number | null>(null);
   const [savedRow, setSavedRow] = useState<number | null>(null);
+  // Signed ms the timekeeper's clock reads ahead of this phone.
+  const [offsetMs, setOffsetMs] = useState(0);
+  const [eventClockText, setEventClockText] = useState('');
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -58,6 +64,7 @@ export function DeviceScreen({ navigation, route }: Props) {
       setSavedRow(cfg.riderRow);
       setRowText(String(cfg.riderRow));
     }
+    setOffsetMs(cfg.clockOffsetMs);
   }, [routeId]);
 
   // Drives the in-app countdown. Runs regardless of the device connection so
@@ -97,6 +104,26 @@ export function DeviceScreen({ navigation, route }: Props) {
 
   // Key time is entered as local HH:MM:SS (seconds matter — officials call it
   // to the second) and resolved against today's date.
+  // Watch-setting technique: the rider types a time they are ABOUT to see on
+  // the official clock, then taps at the instant it reads that. Typing the
+  // current reading and tapping after would bake in their reaction time.
+  function syncEventClock() {
+    const parsed = parseTimeOfDay(eventClockText);
+    if (parsed === null) {
+      Alert.alert('Enter the event clock time as HH:MM:SS, then tap SYNC when it reads that');
+      return;
+    }
+    const offset = clockOffsetMs(resolveTimeOfDay(parsed), Date.now());
+    setRouteClockOffset(routeId, offset);
+    setOffsetMs(offset);
+    setEventClockText('');
+  }
+
+  function clearEventClockSync() {
+    setRouteClockOffset(routeId, 0);
+    setOffsetMs(0);
+  }
+
   function saveKeyTime() {
     const parsed = parseTimeOfDay(keyTimeText);
     if (parsed === null) {
@@ -125,9 +152,12 @@ export function DeviceScreen({ navigation, route }: Props) {
       Alert.alert('Save the key time and row first');
       return;
     }
+    // The device runs on the phone's clock, so send the key time already
+    // converted out of event time.
+    const keyTimePhoneMs = eventTimeToPhoneEpochMs(keyTimeEpochMs, offsetMs);
     run('arm', async () => {
       await deviceMgr.setWheelCircumference(mm);
-      await deviceMgr.armRowStart(keyTimeEpochMs, savedRow);
+      await deviceMgr.armRowStart(keyTimePhoneMs, savedRow);
     });
   }
 
@@ -156,12 +186,17 @@ export function DeviceScreen({ navigation, route }: Props) {
 
   const connected = connectionState === 'connected';
   const riding = status?.rideState === 'riding';
-  const myStartEpochMs =
+  // keyTimeEpochMs is EVENT-clock time. The rider's start is that plus their
+  // row, still on the event clock; converting through the offset gives the
+  // phone-clock instant, which is what the countdown and the device need.
+  const myStartEventMs =
     keyTimeEpochMs !== null && savedRow !== null
       ? riderStartEpochSeconds(keyTimeEpochMs / 1000, savedRow) * 1000
       : null;
+  const myStartPhoneMs =
+    myStartEventMs !== null ? eventTimeToPhoneEpochMs(myStartEventMs, offsetMs) : null;
   const secondsToStart =
-    myStartEpochMs !== null ? (myStartEpochMs - nowMs) / 1000 : null;
+    myStartPhoneMs !== null ? (myStartPhoneMs - nowMs) / 1000 : null;
   const countingDown = status?.rideState === 'countdown';
   const logReady = status?.rideState === 'log_ready';
 
@@ -249,7 +284,47 @@ export function DeviceScreen({ navigation, route }: Props) {
                   value={circumferenceText}
                   onChangeText={setCircumferenceText}
                 />
-                <Text style={styles.cardBody}>Official key time (HH:MM:SS)</Text>
+                <View style={styles.syncBlock}>
+                  <Text style={styles.startLabel}>EVENT CLOCK NOW</Text>
+                  <Text style={styles.eventClock}>
+                    {formatTimeOfDay(eventNowMs(nowMs, offsetMs))}
+                  </Text>
+                  <Text style={styles.startLabel}>
+                    {offsetMs === 0
+                      ? 'not synced \u2014 using this phone\u2019s clock'
+                      : `offset ${formatOffset(offsetMs)} vs phone`}
+                  </Text>
+                </View>
+                <Text style={styles.cardBody}>
+                  Sync: type a time you are about to see on the official clock,
+                  then tap SYNC the instant it reads that.
+                </Text>
+                <TextInput
+                  style={styles.input}
+                  autoCapitalize="none"
+                  placeholder="07:35:00"
+                  placeholderTextColor="#666"
+                  value={eventClockText}
+                  onChangeText={setEventClockText}
+                />
+                <View style={styles.syncRow}>
+                  <TouchableOpacity
+                    style={[styles.button, styles.syncButton]}
+                    onPress={syncEventClock}
+                  >
+                    <Text style={styles.buttonText}>SYNC</Text>
+                  </TouchableOpacity>
+                  {offsetMs !== 0 && (
+                    <TouchableOpacity
+                      style={[styles.button, styles.syncButton]}
+                      onPress={clearEventClockSync}
+                    >
+                      <Text style={styles.buttonText}>Clear</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                <Text style={styles.cardBody}>Official key time (HH:MM:SS, event clock)</Text>
                 <TextInput
                   style={styles.input}
                   autoCapitalize="none"
@@ -272,10 +347,10 @@ export function DeviceScreen({ navigation, route }: Props) {
                   <Text style={styles.buttonText}>Save key time &amp; row</Text>
                 </TouchableOpacity>
 
-                {myStartEpochMs !== null && secondsToStart !== null && (
+                {myStartEventMs !== null && secondsToStart !== null && (
                   <View style={styles.startBlock}>
                     <Text style={styles.startLabel}>
-                      Row {savedRow} starts {formatTimeOfDay(myStartEpochMs)}
+                      Row {savedRow} starts {formatTimeOfDay(myStartEventMs)} event time
                     </Text>
                     <Text style={styles.startCountdown}>
                       {secondsToStart > 0 ? formatCountdown(secondsToStart) : 'PASSED'}
@@ -289,9 +364,9 @@ export function DeviceScreen({ navigation, route }: Props) {
                 <TouchableOpacity
                   style={[
                     styles.goButton,
-                    (busy !== null || myStartEpochMs === null) && styles.disabled,
+                    (busy !== null || myStartEventMs === null) && styles.disabled,
                   ]}
-                  disabled={busy !== null || myStartEpochMs === null}
+                  disabled={busy !== null || myStartEventMs === null}
                   onPress={armRowStart}
                 >
                   <Text style={styles.goText}>ARM ROW START ON DEVICE</Text>
@@ -385,6 +460,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#2a2a2a', color: C.text, borderRadius: 8,
     padding: 12, fontSize: 20, fontWeight: '700', textAlign: 'center', marginBottom: 12,
   },
+  syncBlock: {
+    alignItems: 'center', paddingVertical: 12, marginBottom: 12,
+    backgroundColor: '#2a2a2a', borderRadius: 8,
+  },
+  eventClock: {
+    color: C.accent, fontSize: 34, fontWeight: '900',
+    fontVariant: ['tabular-nums'], letterSpacing: 1,
+  },
+  syncRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
+  syncButton: { flex: 1 },
   startBlock: {
     alignItems: 'center', paddingVertical: 14, marginBottom: 12,
     backgroundColor: '#2a2a2a', borderRadius: 8,

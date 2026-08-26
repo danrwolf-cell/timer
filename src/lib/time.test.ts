@@ -3,6 +3,10 @@ import {
   resolveTimeOfDay,
   formatTimeOfDay,
   formatCountdown,
+  clockOffsetMs,
+  eventNowMs,
+  eventTimeToPhoneEpochMs,
+  formatOffset,
 } from './time';
 
 describe('parseTimeOfDay', () => {
@@ -78,5 +82,51 @@ describe('formatCountdown', () => {
 
   it('rounds partial seconds up so it never shows early', () => {
     expect(formatCountdown(0.4)).toBe('0:01');
+  });
+});
+
+describe('event clock offset', () => {
+  // The reported case: phone reads 7:35:30 while the official clock shows
+  // 7:34:58 — the event clock is 32 seconds behind the phone.
+  const day = (h: number, m: number, s: number) =>
+    new Date(2026, 7, 29, h, m, s, 0).getTime();
+
+  const PHONE = day(7, 35, 30);
+  const EVENT = day(7, 34, 58);
+  const OFFSET = -32_000;
+
+  it('derives a negative offset when the event clock is behind', () => {
+    expect(clockOffsetMs(EVENT, PHONE)).toBe(OFFSET);
+  });
+
+  it('derives a positive offset when the event clock is ahead', () => {
+    expect(clockOffsetMs(day(7, 36, 10), PHONE)).toBe(40_000);
+  });
+
+  it('converts phone now into event now', () => {
+    expect(eventNowMs(PHONE, OFFSET)).toBe(EVENT);
+  });
+
+  it('maps a 9am event key time onto the later phone instant', () => {
+    // Event clock lags by 32s, so event-9:00:00 happens at phone-9:00:32.
+    const phoneInstant = eventTimeToPhoneEpochMs(day(9, 0, 0), OFFSET);
+    expect(phoneInstant).toBe(day(9, 0, 32));
+  });
+
+  it('round-trips between the two clocks', () => {
+    const t = day(9, 12, 0);
+    expect(eventNowMs(eventTimeToPhoneEpochMs(t, OFFSET), OFFSET)).toBe(t);
+  });
+
+  it('is identity at zero offset', () => {
+    expect(eventTimeToPhoneEpochMs(PHONE, 0)).toBe(PHONE);
+    expect(eventNowMs(PHONE, 0)).toBe(PHONE);
+  });
+
+  it('formats signed offsets', () => {
+    expect(formatOffset(-32_000)).toBe('-32s');
+    expect(formatOffset(40_000)).toBe('+40s');
+    expect(formatOffset(0)).toBe('+0s');
+    expect(formatOffset(-64_000)).toBe('-1m 04s');
   });
 });

@@ -55,7 +55,7 @@ The phone live-screen is a functional demo and a validation harness, not a shipp
 
 ## Current codebase state (as of this writing)
 
-Tests: 128/128 passing (`npx jest`), plus the firmware host-side vector suite
+Tests: 135/135 passing (`npx jest`), plus the firmware host-side vector suite
 (`make -C firmware/test`, 1425 checks) validating the C port against the TS
 golden reference.
 

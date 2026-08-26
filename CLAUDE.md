@@ -34,7 +34,7 @@ If you change a golden-reference TS module: `make -C firmware/test vectors && ma
 | `src/ble/use-enduro-device.ts` | React hook wrapping `deviceMgr` + `device-store`. |
 | `src/store/ride-store.ts` | Zustand store: live ride state, `updateDistance`, `manualReset`, `crossedReset` integration. |
 | `src/store/device-store.ts` | Zustand store: device connection state, live `DeviceStatus`, transfer progress. |
-| `src/lib/time.ts` | Pure clock helpers: `parseTimeOfDay` (HH:MM:SS), `resolveTimeOfDay`, `formatCountdown`. Phone-side only — not golden reference. |
+| `src/lib/time.ts` | Pure clock helpers: `parseTimeOfDay` (HH:MM:SS), `resolveTimeOfDay`, `formatCountdown`, plus event-clock offset math (`clockOffsetMs`, `eventNowMs`, `eventTimeToPhoneEpochMs`). Phone-side only — not golden reference. |
 | `src/db/import-ride.ts` | Pulled device log → `raw_csc_log` → replay → `ride_log` (`source: 'replay'`). |
 | `src/db/schema.ts` | SQLite schema + additive PRAGMA-guarded migrations. Tables: `routes`, `route_segments`, `rides`, `ride_log`, `raw_csc_log`. |
 | `src/db/queries.ts` | Typed query helpers. `getRouteRules()` returns `FtRules` with AMA fallbacks. `ride_log.source`: `'live'`\|`'replay'`. |
@@ -66,7 +66,7 @@ If you change a golden-reference TS module: `make -C firmware/test vectors && ma
 
 ## Database schema (current)
 
-- `routes` — id, name, has_secret_checks, ft_miles_after_check, ft_miles_before_gas, ft_miles_after_gas, ft_calibration_mile, key_time_epoch_ms, rider_row
+- `routes` — id, name, has_secret_checks, ft_miles_after_check, ft_miles_before_gas, ft_miles_after_gas, ft_calibration_mile, key_time_epoch_ms, rider_row, clock_offset_ms
 - `route_segments` — id, route_id, sort_order, distance_mi, speed_mph, is_free, is_reset, label, check_type
 - `rides` — id, route_id, started_at, ended_at, wheel_circumference_mm, sensor_id
 - `ride_log` — id, ride_id, wall_clock_ms, cumulative_distance_mi, deviation_seconds, speed_mph, segment_index, source ('live'|'replay')
@@ -78,7 +78,7 @@ All schema changes must use additive PRAGMA-guarded ALTER TABLE migrations (see 
 
 ## Current state
 
-**Tests: 128/128 passing** (`npx jest`). **Firmware host suite: 1425 checks** (`make -C firmware/test`).
+**Tests: 135/135 passing** (`npx jest`). **Firmware host suite: 1425 checks** (`make -C firmware/test`).
 
 Phase 1 priorities complete:
 - [x] Raw CSC log capture (`raw_csc_log` table + BLE manager queue)

@@ -58,3 +58,48 @@ export function formatCountdown(totalSeconds: number): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return hours > 0 ? `${hours}:${pad(minutes)}:${pad(secs)}` : `${minutes}:${pad(secs)}`;
 }
+
+// ---------------------------------------------------------------------------
+// Event clock offset
+//
+// The timekeeper's clock is authoritative and rarely matches the phone's. All
+// key times are quoted in EVENT time, so the phone holds a signed offset and
+// converts. Positive offset = the event clock reads ahead of the phone.
+//
+//   eventClock = phoneClock + offset
+//
+// Measured by the rider naming a time they are about to see and tapping at the
+// instant the official clock reaches it.
+
+/**
+ * Offset implied by seeing the event clock read `eventReadingEpochMs` at the
+ * instant the phone read `phoneEpochMs`.
+ */
+export function clockOffsetMs(eventReadingEpochMs: number, phoneEpochMs: number): number {
+  return eventReadingEpochMs - phoneEpochMs;
+}
+
+/** What the event clock reads when the phone reads `phoneEpochMs`. */
+export function eventNowMs(phoneEpochMs: number, offsetMs: number): number {
+  return phoneEpochMs + offsetMs;
+}
+
+/**
+ * Convert an instant expressed on the event clock into the phone-clock instant
+ * at which it occurs — the form the device needs, since the device is synced to
+ * the phone's clock, not the timekeeper's.
+ */
+export function eventTimeToPhoneEpochMs(eventEpochMs: number, offsetMs: number): number {
+  return eventEpochMs - offsetMs;
+}
+
+/** Signed offset for display, e.g. "-32s" or "+1m 04s". */
+export function formatOffset(offsetMs: number): string {
+  const totalSeconds = Math.round(offsetMs / 1000);
+  const sign = totalSeconds < 0 ? '-' : '+';
+  const abs = Math.abs(totalSeconds);
+  if (abs < 60) return `${sign}${abs}s`;
+  const m = Math.floor(abs / 60);
+  const s = abs % 60;
+  return `${sign}${m}m ${String(s).padStart(2, '0')}s`;
+}
