@@ -7,7 +7,11 @@ import type { RouteProp } from '@react-navigation/native';
 import type { RootStackParamList } from './types';
 import { useEnduroDevice } from '../ble/use-enduro-device';
 import { deviceMgr } from '../ble/device-manager';
-import { getSegments } from '../db/queries';
+import { getSegments, getRouteStartConfig, setRouteStartConfig } from '../db/queries';
+import { riderStartEpochSeconds } from '../ble/device-protocol';
+import {
+  parseTimeOfDay, resolveTimeOfDay, formatTimeOfDay, formatCountdown,
+} from '../lib/time';
 import { importDeviceRideLog } from '../db/import-ride';
 import type { Segment } from '../engine/pace-engine';
 
@@ -27,8 +31,13 @@ export function DeviceScreen({ navigation, route }: Props) {
   } = useEnduroDevice();
   const [segments, setSegments] = useState<Segment[]>([]);
   const [circumferenceText, setCircumferenceText] = useState('2183');
-  const [keyTimeText, setKeyTimeText] = useState('08:00');
+  const [keyTimeText, setKeyTimeText] = useState('08:00:00');
   const [rowText, setRowText] = useState('1');
+  // Saved (absolute) key time. Held on the phone so it can be entered hours
+  // ahead of the start; the device only learns about it at ARM time.
+  const [keyTimeEpochMs, setKeyTimeEpochMs] = useState<number | null>(null);
+  const [savedRow, setSavedRow] = useState<number | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [busy, setBusy] = useState<string | null>(null);
 
   useEffect(() => {
@@ -39,7 +48,24 @@ export function DeviceScreen({ navigation, route }: Props) {
       return;
     }
     setSegments(segs);
+
+    const cfg = getRouteStartConfig(routeId);
+    if (cfg.keyTimeEpochMs !== null) {
+      setKeyTimeEpochMs(cfg.keyTimeEpochMs);
+      setKeyTimeText(formatTimeOfDay(cfg.keyTimeEpochMs));
+    }
+    if (cfg.riderRow !== null) {
+      setSavedRow(cfg.riderRow);
+      setRowText(String(cfg.riderRow));
+    }
   }, [routeId]);
+
+  // Drives the in-app countdown. Runs regardless of the device connection so
+  // the key time keeps ticking on the phone until the race is sent over.
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
   async function run(label: string, action: () => Promise<void>) {
     setBusy(label);
@@ -69,16 +95,24 @@ export function DeviceScreen({ navigation, route }: Props) {
     });
   }
 
-  // Key time is entered as local HH:MM and resolved against today's date.
-  function parseKeyTimeEpochMs(text: string): number | null {
-    const m = /^(\d{1,2}):(\d{2})$/.exec(text.trim());
-    if (!m) return null;
-    const hours = parseInt(m[1], 10);
-    const minutes = parseInt(m[2], 10);
-    if (hours > 23 || minutes > 59) return null;
-    const d = new Date();
-    d.setHours(hours, minutes, 0, 0);
-    return d.getTime();
+  // Key time is entered as local HH:MM:SS (seconds matter — officials call it
+  // to the second) and resolved against today's date.
+  function saveKeyTime() {
+    const parsed = parseTimeOfDay(keyTimeText);
+    if (parsed === null) {
+      Alert.alert('Enter the official key time as HH:MM:SS (24-hour)');
+      return;
+    }
+    const row = parseInt(rowText, 10);
+    if (isNaN(row) || row < 0 || row > 255) {
+      Alert.alert('Enter a row between 0 and 255');
+      return;
+    }
+    const epochMs = resolveTimeOfDay(parsed);
+    setRouteStartConfig(routeId, epochMs, row);
+    setKeyTimeEpochMs(epochMs);
+    setSavedRow(row);
+    setKeyTimeText(formatTimeOfDay(epochMs));
   }
 
   function armRowStart() {
@@ -87,19 +121,13 @@ export function DeviceScreen({ navigation, route }: Props) {
       Alert.alert('Enter a wheel circumference between 1500\u20133000 mm');
       return;
     }
-    const keyTimeEpochMs = parseKeyTimeEpochMs(keyTimeText);
-    if (keyTimeEpochMs === null) {
-      Alert.alert('Enter the official key time as HH:MM (24-hour)');
-      return;
-    }
-    const row = parseInt(rowText, 10);
-    if (isNaN(row) || row < 0 || row > 255) {
-      Alert.alert('Enter a row between 0 and 255');
+    if (keyTimeEpochMs === null || savedRow === null) {
+      Alert.alert('Save the key time and row first');
       return;
     }
     run('arm', async () => {
       await deviceMgr.setWheelCircumference(mm);
-      await deviceMgr.armRowStart(keyTimeEpochMs, row);
+      await deviceMgr.armRowStart(keyTimeEpochMs, savedRow);
     });
   }
 
@@ -128,6 +156,12 @@ export function DeviceScreen({ navigation, route }: Props) {
 
   const connected = connectionState === 'connected';
   const riding = status?.rideState === 'riding';
+  const myStartEpochMs =
+    keyTimeEpochMs !== null && savedRow !== null
+      ? riderStartEpochSeconds(keyTimeEpochMs / 1000, savedRow) * 1000
+      : null;
+  const secondsToStart =
+    myStartEpochMs !== null ? (myStartEpochMs - nowMs) / 1000 : null;
   const countingDown = status?.rideState === 'countdown';
   const logReady = status?.rideState === 'log_ready';
 
@@ -215,10 +249,11 @@ export function DeviceScreen({ navigation, route }: Props) {
                   value={circumferenceText}
                   onChangeText={setCircumferenceText}
                 />
-                <Text style={styles.cardBody}>Official key time (HH:MM)</Text>
+                <Text style={styles.cardBody}>Official key time (HH:MM:SS)</Text>
                 <TextInput
                   style={styles.input}
                   autoCapitalize="none"
+                  placeholder="08:00:00"
                   value={keyTimeText}
                   onChangeText={setKeyTimeText}
                 />
@@ -230,11 +265,36 @@ export function DeviceScreen({ navigation, route }: Props) {
                   onChangeText={setRowText}
                 />
                 <TouchableOpacity
-                  style={[styles.goButton, busy !== null && styles.disabled]}
+                  style={[styles.button, busy !== null && styles.disabled]}
                   disabled={busy !== null}
+                  onPress={saveKeyTime}
+                >
+                  <Text style={styles.buttonText}>Save key time &amp; row</Text>
+                </TouchableOpacity>
+
+                {myStartEpochMs !== null && secondsToStart !== null && (
+                  <View style={styles.startBlock}>
+                    <Text style={styles.startLabel}>
+                      Row {savedRow} starts {formatTimeOfDay(myStartEpochMs)}
+                    </Text>
+                    <Text style={styles.startCountdown}>
+                      {secondsToStart > 0 ? formatCountdown(secondsToStart) : 'PASSED'}
+                    </Text>
+                    <Text style={styles.startLabel}>
+                      {secondsToStart > 0 ? 'to your start' : 'key time already passed today'}
+                    </Text>
+                  </View>
+                )}
+
+                <TouchableOpacity
+                  style={[
+                    styles.goButton,
+                    (busy !== null || myStartEpochMs === null) && styles.disabled,
+                  ]}
+                  disabled={busy !== null || myStartEpochMs === null}
                   onPress={armRowStart}
                 >
-                  <Text style={styles.goText}>ARM ROW START</Text>
+                  <Text style={styles.goText}>ARM ROW START ON DEVICE</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.button, busy !== null && styles.disabled]}
@@ -324,6 +384,15 @@ const styles = StyleSheet.create({
   input: {
     backgroundColor: '#2a2a2a', color: C.text, borderRadius: 8,
     padding: 12, fontSize: 20, fontWeight: '700', textAlign: 'center', marginBottom: 12,
+  },
+  startBlock: {
+    alignItems: 'center', paddingVertical: 14, marginBottom: 12,
+    backgroundColor: '#2a2a2a', borderRadius: 8,
+  },
+  startLabel: { color: C.muted, fontSize: 13 },
+  startCountdown: {
+    color: C.text, fontSize: 44, fontWeight: '900',
+    fontVariant: ['tabular-nums'], letterSpacing: 1,
   },
   goButton: { backgroundColor: '#2ecc71', padding: 18, borderRadius: 12, alignItems: 'center' },
   stopButton: { backgroundColor: '#e74c3c', padding: 18, borderRadius: 12, alignItems: 'center', marginTop: 10 },

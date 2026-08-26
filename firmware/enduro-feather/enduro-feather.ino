@@ -625,8 +625,17 @@ static void render() {
     int32_t remain = countdownSeconds();
     snprintf(line, sizeof(line), "ROW %u", riderRow);
     drawCentered(line, 40, 3);
-    snprintf(line, sizeof(line), "%ld:%02ld", (long)(remain / 60), (long)(remain % 60));
-    drawCentered(line, 88, 11);
+    // H:MM:SS past an hour — arming well ahead of the start is normal, so the
+    // hour field is not an edge case. Narrower glyphs keep it on the panel.
+    if (remain >= 3600) {
+      snprintf(line, sizeof(line), "%ld:%02ld:%02ld", (long)(remain / 3600),
+               (long)((remain % 3600) / 60), (long)(remain % 60));
+      drawCentered(line, 100, 7);
+    } else {
+      snprintf(line, sizeof(line), "%ld:%02ld", (long)(remain / 60),
+               (long)(remain % 60));
+      drawCentered(line, 88, 11);
+    }
     drawCentered("TO START", 190, 3);
     display.refresh();
     return;
