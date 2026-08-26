@@ -500,7 +500,7 @@ function StatusItem({ label, value }: { label: string; value: string }) {
   );
 }
 
-const C = { bg: '#0f0f0f', card: '#1a1a1a', accent: '#f0a500', text: '#fff', muted: '#888' };
+const C = { bg: '#0f0f0f', card: '#1a1a1a', accent: '#FF6600', text: '#fff', muted: '#888' };
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
