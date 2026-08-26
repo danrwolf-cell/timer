@@ -27,7 +27,7 @@ This strategy has two practical consequences for how the phone code is written r
 
 1. **The engine and parser are the golden reference.** `pace-engine.ts` and `csc-parser.ts` are pure functions with no platform dependencies. They stay that way permanently. The C firmware gets validated against the TypeScript unit tests — same inputs, same outputs. Do not add side effects, timers, or RN imports to these files. *(Implemented: `firmware/core` is the C port; `firmware/test` generates vectors from the TS modules and validates the port host-side — `make -C firmware/test`.)*
 
-2. **The phone live-screen is deliberately lean and partially throwaway.** It needs to be correct and testable, not polished. Time spent on live-screen animation, haptics, and gesture refinement before the ESP32 path is validated is mostly wasted. Build it to the point where you can ride with it and trust the numbers. Stop there until the hardware path is proven.
+2. **The phone live-screen was throwaway, and has now been thrown away.** It existed to prove the engine before the hardware worked. It did, and it is gone — see "The phone live-screen: removed" below. The device is the ride surface; the phone is route entry, device control and post-ride analytics.
 
 ---
 
@@ -36,7 +36,7 @@ This strategy has two practical consequences for how the phone code is written r
 These survive into the companion role unchanged or with minor adaptation:
 
 - **Route library and sheet builder** — the primary input surface regardless of hardware
-- **Pre-ride setup flow** — sensor pairing, circumference confirmation, start-time entry
+- **Pre-ride setup** — now on the Device screen: event-clock sync, key time, row, wheel circumference, arming the device
 - **Route sharing** (Phase 2) — search, publish, AirDrop-style local share
 - **Post-ride analytics** — deviation chart, session history, per-event trends
 - **SQLite store** — routes, segments, rides, raw CSC log, derived ride log
@@ -74,8 +74,6 @@ golden reference.
 | `src/engine/free-territory.ts` | **New.** Pure module. Free-territory/secret-check planning: AMA-traditional rules, `freeTerritory`, `checkableTerritory`, `freeTerritoryAt`, `mergeIntervals`. No UI surface yet — see Phase 2. |
 | `src/engine/replay.ts` | **New.** Replay harness: feeds `raw_csc_log` rows through parser + engine, produces deviation-over-distance. Snapshot-tested. Priority 1 done. |
 | `src/ble/csc-parser.ts` | Decided. Power-cycle vs. genuine 32-bit rollover distinguished by previous counter value. 150 mph speed ceiling backstop. Priority 2 done. |
-| `src/ble/ble-manager.ts` | Working. Captures decoded CSC pair to `raw_csc_log` unconditionally (including null-update cases). iOS backgrounding untested — see Priority 4b. |
-| `src/store/ride-store.ts` | Working. Auto-reset now uses `crossedReset()` — boundary-crossing detector. Priority 4a done. |
 | `src/db/schema.ts` | Working. `raw_csc_log` table added. Additive migrations for `check_type`, `has_secret_checks`, and FT rule columns via PRAGMA-guarded ALTERs. |
 | `src/db/queries.ts` | Working. `check_type` in read/write. `getRouteRules()` returns `FtRules` with per-column AMA fallbacks. `ride_log.source` column (`'live'`\|`'replay'`) distinguishes live-computed from post-hoc replay. |
 | Screens | RouteLibrary, Device, PostRide. The standalone ride path was removed — see above. |
