@@ -6,7 +6,13 @@
 
 A time-distance riding companion for enduro MX. The rider follows a route sheet of timed segments; the app tracks cumulative distance via a BLE CSC (Cycling Speed and Cadence) speed sensor on the front wheel hub and displays live deviation from the ideal key time.
 
-**The phone app is the demo and validation harness, not the final product.** The live-ride product is a handlebar unit — **Adafruit Feather nRF52840 Express + Adafruit 4694 Sharp Memory LCD** (400×240, always-on, sunlight-readable). Parts are in hand; firmware lives in `firmware/`. The phone is the companion: route entry, library, BLE push/pull to the device, and post-ride analytics.
+**The phone app is the companion; the handlebar unit is the product.** The
+standalone phone-ride path (PreRide + LiveRide screens, phone-side CSC BLE,
+`ride-store`) was removed in August 2026 once the device path worked — the
+phone no longer rides on its own. It now does route entry, device control
+(clock sync, key time, row, arming), and post-ride replay/analytics. The
+removed files are recoverable from git history if a phone-only fallback is
+ever wanted again. The live-ride product is a handlebar unit — **Adafruit Feather nRF52840 Express + Adafruit 4694 Sharp Memory LCD** (400×240, always-on, sunlight-readable). Parts are in hand; firmware lives in `firmware/`. The phone is the companion: route entry, library, BLE push/pull to the device, and post-ride analytics.
 
 ---
 
@@ -27,20 +33,15 @@ If you change a golden-reference TS module: `make -C firmware/test vectors && ma
 | `src/engine/replay.ts` | Post-ride replay: feeds `raw_csc_log` rows through parser + engine → deviation-over-distance. |
 | `src/ble/csc-parser.ts` | Decodes CSC GATT characteristic 0x2A5B. Distinguishes power-cycle from genuine 32-bit rollover. Golden reference. |
 | `src/ble/ble-instance.ts` | The single shared native `BleManager` instance. |
-| `src/ble/ble-manager.ts` | Singleton `EnduroBleManager` (`bleMgr`). Manages BLE scan, connect, reconnect, raw CSC capture. |
-| `src/ble/use-ble-sensor.ts` | React hook wrapping `bleMgr`. |
 | `src/ble/device-protocol.ts` | Pure codec for the handlebar-unit protocol (pack/parse, CRC-16, `RideLogAssembler`). Golden reference. |
 | `src/ble/device-manager.ts` | Singleton `EnduroDeviceManager` (`deviceMgr`). Phone↔device: route push, control, status, ride log pull. |
 | `src/ble/use-enduro-device.ts` | React hook wrapping `deviceMgr` + `device-store`. |
-| `src/store/ride-store.ts` | Zustand store: live ride state, `updateDistance`, `manualReset`, `crossedReset` integration. |
 | `src/store/device-store.ts` | Zustand store: device connection state, live `DeviceStatus`, transfer progress. |
 | `src/lib/time.ts` | Pure clock helpers: `parseTimeOfDay` (HH:MM:SS), `resolveTimeOfDay`, `formatCountdown`, plus event-clock offset math (`clockOffsetMs`, `eventNowMs`, `eventTimeToPhoneEpochMs`). Phone-side only — not golden reference. |
 | `src/db/import-ride.ts` | Pulled device log → `raw_csc_log` → replay → `ride_log` (`source: 'replay'`). |
 | `src/db/schema.ts` | SQLite schema + additive PRAGMA-guarded migrations. Tables: `routes`, `route_segments`, `rides`, `ride_log`, `raw_csc_log`. |
 | `src/db/queries.ts` | Typed query helpers. `getRouteRules()` returns `FtRules` with AMA fallbacks. `ride_log.source`: `'live'`\|`'replay'`. |
 | `src/screens/RouteLibraryScreen.tsx` | Route list + modal sheet builder. |
-| `src/screens/PreRideScreen.tsx` | 4-step pre-ride flow: route confirm → sensor scan → circumference → GO. |
-| `src/screens/LiveRideScreen.tsx` | Live ride display. Intentionally lean — demo only, not polished. |
 | `src/screens/PostRideScreen.tsx` | Hand-rolled SVG deviation chart, stat boxes. |
 | `src/screens/DeviceScreen.tsx` | Handlebar-unit companion: connect, push route, drive ride, pull log. Lean. |
 | `firmware/core/` | Pure C golden-reference port: `pace_engine`, `csc_parser`, `route_sheet` codec. Doubles as Arduino library `EnduroCore`. |
@@ -113,7 +114,7 @@ Development branch: `claude/hardware-prototype-mobile-app-zhwolc`. Main branch e
 - Do not add side effects, timers, or RN imports to `pace-engine.ts`, `csc-parser.ts`, `free-territory.ts`, or `device-protocol.ts`
 - Do not edit `firmware/test/vectors.h` by hand — it is generated (`make -C firmware/test vectors`)
 - Do not change the BLE wire format in only one place — `docs/BLE-PROTOCOL.md`, `device-protocol.ts`, and `firmware/core/route_sheet.c` move together
-- Do not polish the live-ride screen (animation, haptics, gesture refinements) — it's a demo harness; polish waits until the hardware path is proven
+- Do not rebuild a standalone phone-ride path — it was deliberately removed; the device is the ride surface
 - Do not drop or rename SQLite columns — additive migrations only
 - Do not add the `bluetooth-central` background mode again — it's already in `app.json`
 - Do not run `playwright install` — Chromium is pre-installed at `/opt/pw-browsers`

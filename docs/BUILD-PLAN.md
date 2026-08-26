@@ -43,13 +43,22 @@ These survive into the companion role unchanged or with minor adaptation:
 
 ---
 
-## What the phone live-screen is (deliberately not)
+## The phone live-screen: removed (August 2026)
 
-The phone live-screen is a functional demo and a validation harness, not a shipping product. Accept that:
+The standalone phone-ride path served its purpose and is gone. Once the
+handlebar unit was riding — displaying deviation, running its own countdown,
+logging raw CSC and handing the log back for replay — a second, weaker ride
+surface on the phone was only a source of confusion: it had none of the clock
+sync, key time or row features, and validating a touch UI that was always
+going to be thrown away is exactly the trap this plan warned about.
 
-- Touch interaction is adequate for now; BLE remote is Phase 2 on phone, primary on ESP32
-- Screen brightness, keep-awake, and anti-ghost-touch are worth doing but not blocking
-- Polish (animation, haptics, font tuning) waits until the hardware path is proven
+Removed: `PreRideScreen`, `LiveRideScreen`, `SensorStatusBar`, `ride-store.ts`,
+`ble-manager.ts` (phone-side CSC), `use-ble-sensor.ts`. Recoverable from git
+history if a phone-only fallback is ever wanted.
+
+The phone keeps route entry, device control, and post-ride analytics. Engine
+validation now runs through the stronger path: pull the device's raw log and
+replay it through the same TypeScript golden reference.
 
 ---
 
@@ -69,7 +78,7 @@ golden reference.
 | `src/store/ride-store.ts` | Working. Auto-reset now uses `crossedReset()` — boundary-crossing detector. Priority 4a done. |
 | `src/db/schema.ts` | Working. `raw_csc_log` table added. Additive migrations for `check_type`, `has_secret_checks`, and FT rule columns via PRAGMA-guarded ALTERs. |
 | `src/db/queries.ts` | Working. `check_type` in read/write. `getRouteRules()` returns `FtRules` with per-column AMA fallbacks. `ride_log.source` column (`'live'`\|`'replay'`) distinguishes live-computed from post-hoc replay. |
-| All four screens | Working shell. Phone live-screen intentionally lean per above. |
+| Screens | RouteLibrary, Device, PostRide. The standalone ride path was removed — see above. |
 
 ---
 
@@ -208,7 +217,7 @@ Goal: a working app you can ride with that produces trustworthy numbers and a ra
 - [x] **Speed sanity clamp in CSC parser (power-cycle vs. rollover)** ← Priority 2
 - [x] **Auto-reset: boundary-crossing detector** ← Priority 4a (unit test, no device)
 - [ ] **iOS BLE backgrounding — prototype and field test** ← Priority 4b (device required)
-- [ ] EAS build, TestFlight, ride with it
+- [x] ~~EAS build, TestFlight, ride with it~~ — superseded: the device is the ride surface, validated by log pull + replay rather than by riding the phone
 
 ### Phase 2 — Phone companion solidified
 
@@ -217,7 +226,7 @@ Goal: a working app you can ride with that produces trustworthy numbers and a ra
 - [ ] Audio cues to Bluetooth speakers
 - [ ] Keep-awake + screen brightness management
 - [ ] Transfer section time allowances (vs. fully free)
-- [ ] Free-territory UI: zone overlay in route builder, live "check possible" state on live screen (`free-territory.ts` is built and fully tested — no UI surface yet)
+- [ ] Free-territory UI: zone overlay in route builder, and a "check possible" state on the device panel (`free-territory.ts` is built and fully tested — no UI surface yet)
 
 ### Phase 3 — Device bring-up (Feather nRF52840)
 
