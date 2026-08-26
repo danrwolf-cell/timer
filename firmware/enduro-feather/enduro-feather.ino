@@ -43,6 +43,11 @@ using namespace Adafruit_LittleFS_Namespace;
 #define DISPLAY_W 400
 #define DISPLAY_H 240
 
+// Adafruit_SharpMem doesn't define these — the library's own examples expect
+// the sketch to. Monochrome panel: 0 = black pixel, 1 = white.
+#define BLACK 0
+#define WHITE 1
+
 Adafruit_SharpMem display(&SPI, SHARP_CS_PIN, DISPLAY_W, DISPLAY_H);
 
 // ---------------------------------------------------------------------------
@@ -71,6 +76,25 @@ Adafruit_SharpMem display(&SPI, SHARP_CS_PIN, DISPLAY_W, DISPLAY_H);
 #define ADJUST_STEP_MI 0.01
 #define ADJUST_HOLD_DELAY_MS 600
 #define ADJUST_REPEAT_MS 150
+
+// Defined here, not below with pollButton(): the Arduino preprocessor
+// auto-generates prototypes for every function and injects them near the top
+// of the file, so any type used in a signature must be declared up here or
+// the generated prototype won't compile.
+struct DebouncedButton {
+  uint8_t pin;
+  bool lastReading = HIGH;
+  bool debouncedState = HIGH;
+  uint32_t lastChangeMs = 0;
+  uint32_t pressStartMs = 0;
+  uint32_t lastRepeatMs = 0;
+
+  explicit DebouncedButton(uint8_t p) : pin(p) {}
+};
+
+static DebouncedButton resetButton(RESET_BUTTON_PIN);
+static DebouncedButton upButton(UP_BUTTON_PIN);
+static DebouncedButton downButton(DOWN_BUTTON_PIN);
 
 // ---------------------------------------------------------------------------
 // Enduro GATT service (UUIDs from docs/BLE-PROTOCOL.md, little-endian bytes)
@@ -553,21 +577,6 @@ static void render() {
 // Hardwired buttons — debounced, with optional press-and-hold auto-repeat
 // for UP/DOWN. RESET fires CONTROL 0x03's effect; UP/DOWN nudge cumulativeMi
 // directly (course mile-marker correction, not a route-sheet reset).
-
-struct DebouncedButton {
-  uint8_t pin;
-  bool lastReading = HIGH;
-  bool debouncedState = HIGH;
-  uint32_t lastChangeMs = 0;
-  uint32_t pressStartMs = 0;
-  uint32_t lastRepeatMs = 0;
-
-  explicit DebouncedButton(uint8_t p) : pin(p) {}
-};
-
-static DebouncedButton resetButton(RESET_BUTTON_PIN);
-static DebouncedButton upButton(UP_BUTTON_PIN);
-static DebouncedButton downButton(DOWN_BUTTON_PIN);
 
 // Returns true on the debounced press edge, and again on each auto-repeat
 // tick while held (if allowRepeat).
