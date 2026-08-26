@@ -504,8 +504,21 @@ static void drawCentered(const char *text, int16_t y, uint8_t size) {
 
 static void render() {
   display.clearDisplayBuffer();
-  display.setTextColor(BLACK);
   display.setTextWrap(false);
+
+  // Colour scheme is decided before anything is drawn: when the rider is early
+  // (ahead of schedule) the whole panel inverts to white-on-black, so the state
+  // reads at a glance on the bars without parsing the sign on the number.
+  // Deliberately not applied to the RESET flash, which stays normal so it can't
+  // be confused with the early state.
+  bool riding = (rideState == RS_RIDE_RIDING) && routeLoaded;
+  bool resetFlash = millis() < resetFlashUntilMs;
+  double dev = riding ? currentDeviationSeconds() : 0.0;
+  long devRounded = lround(dev);
+  bool inverted = riding && !resetFlash && devRounded < 0;
+
+  if (inverted) display.fillScreen(BLACK);
+  display.setTextColor(inverted ? WHITE : BLACK);
 
   char line[48];
 
@@ -548,14 +561,12 @@ static void render() {
   display.setTextSize(2);
   display.print(line);
 
-  // Hero: deviation (or ON TIME / FREE / RESET)
-  bool resetFlash = millis() < resetFlashUntilMs;
+  // Hero: deviation (or ON TIME / FREE / RESET). resetFlash, dev and
+  // devRounded were computed at the top of render() to pick the colour scheme.
   bool inFree = pe_is_in_free_segment(segments, route.count, segmentIndex);
-  double dev = currentDeviationSeconds();
 
   char hero[16];
   formatDeviation(dev, resetFlash, hero, sizeof(hero));
-  long devRounded = lround(dev);
 
   if (!resetFlash && devRounded == 0) {
     drawCentered("ON TIME", 90, 7);
