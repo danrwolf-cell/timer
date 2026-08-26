@@ -321,25 +321,49 @@ static void cscNotifyCallback(BLEClientCharacteristic *chr, uint8_t *data,
   segmentIndex = pos.segment_index;
 }
 
-// Counter so the "still looking" line is periodic rather than per-advert.
-static uint32_t scanOtherSeen = 0;
+// Every distinct address is logged once with its name, so the serial output
+// is a readable inventory of what is on the air rather than a flood. Plenty of
+// CSC sensors never advertise 0x1816 at all — they advertise a name only, and
+// you learn what they speak after connecting — so the inventory is how we find
+// out what this sensor actually looks like.
+#define SCAN_LOG_MAX 24
+static uint8_t scanSeenAddrs[SCAN_LOG_MAX][6];
+static uint8_t scanSeenCount = 0;
+
+static bool scanFirstSighting(const uint8_t *addr) {
+  for (uint8_t i = 0; i < scanSeenCount; i++) {
+    if (memcmp(scanSeenAddrs[i], addr, 6) == 0) return false;
+  }
+  if (scanSeenCount < SCAN_LOG_MAX) {
+    memcpy(scanSeenAddrs[scanSeenCount++], addr, 6);
+  }
+  return true;
+}
 
 static void scanCallback(ble_gap_evt_adv_report_t *report) {
-  // Checked here rather than via Scanner.filterUuid() so that a sensor which
-  // advertises 0x1816 only in its SCAN_RSP is still matched, and so the serial
-  // log shows what is actually on the air when it isn't.
-  if (Bluefruit.Scanner.checkReportForUuid(report, cscService.uuid)) {
-    const uint8_t *a = report->peer_addr.addr;
-    Serial.printf("[scan] CSC sensor %02X:%02X:%02X:%02X:%02X:%02X rssi=%d\n",
-                  a[5], a[4], a[3], a[2], a[1], a[0], report->rssi);
+  const uint8_t *a = report->peer_addr.addr;
+  bool hasCsc = Bluefruit.Scanner.checkReportForUuid(report, cscService.uuid);
+
+  if (scanFirstSighting(a)) {
+    char name[32] = {0};
+    if (Bluefruit.Scanner.parseReportByType(
+            report, BLE_GAP_AD_TYPE_COMPLETE_LOCAL_NAME,
+            (uint8_t *)name, sizeof(name) - 1) == 0) {
+      Bluefruit.Scanner.parseReportByType(
+          report, BLE_GAP_AD_TYPE_SHORT_LOCAL_NAME,
+          (uint8_t *)name, sizeof(name) - 1);
+    }
+    Serial.printf("[scan] %02X:%02X:%02X:%02X:%02X:%02X rssi=%4d csc=%s name='%s'\n",
+                  a[5], a[4], a[3], a[2], a[1], a[0], report->rssi,
+                  hasCsc ? "YES" : "no ", name);
+  }
+
+  if (hasCsc) {
+    Serial.println("[scan] -> connecting");
     Bluefruit.Central.connect(report);
     return;  // no resume(): connecting takes over from scanning
   }
 
-  if (++scanOtherSeen % 25 == 0) {
-    Serial.printf("[scan] %lu non-CSC adverts seen, still looking\n",
-                  (unsigned long)scanOtherSeen);
-  }
   // SoftDevice pauses the scanner to deliver each report; without this it
   // stops after the first device that isn't ours.
   Bluefruit.Scanner.resume();
