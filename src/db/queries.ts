@@ -182,6 +182,30 @@ export function replaceFreeZones(routeId: number, zones: FtZoneInput[]): void {
 }
 
 // Rides
+export interface RideRow {
+  id: number;
+  route_id: number;
+  start_time: string;
+  route_name: string;
+}
+
+/** Ride history, newest first, with the route name for display. */
+export function listRides(): RideRow[] {
+  return getDb().getAllSync(
+    `SELECT rides.id, rides.route_id, rides.start_time, routes.name AS route_name
+     FROM rides JOIN routes ON routes.id = rides.route_id
+     ORDER BY rides.id DESC`
+  ) as RideRow[];
+}
+
+/** Route of the most recent ride — the Device tab's fallback when opened without a route. */
+export function lastRiddenRouteId(): number | null {
+  const row = getDb().getFirstSync(
+    'SELECT route_id FROM rides ORDER BY id DESC LIMIT 1'
+  ) as { route_id: number } | null;
+  return row?.route_id ?? null;
+}
+
 export function insertRide(routeId: number, startTime: string, wheelCircumferenceMm: number, sensorId?: string): number {
   const result = getDb().runSync(
     'INSERT INTO rides (route_id, start_time, wheel_circumference_mm, sensor_id) VALUES (?, ?, ?, ?)',

@@ -29,7 +29,7 @@ export function PostRideScreen({ navigation, route }: Props) {
       <View style={styles.container}>
         <Text style={styles.title}>Ride Complete</Text>
         <Text style={styles.empty}>Not enough data to show a chart.</Text>
-        <TouchableOpacity style={styles.doneButton} onPress={() => navigation.replace('RouteLibrary')}>
+        <TouchableOpacity style={styles.doneButton} onPress={() => navigation.goBack()}>
           <Text style={styles.doneText}>Done</Text>
         </TouchableOpacity>
       </View>
@@ -116,7 +116,7 @@ export function PostRideScreen({ navigation, route }: Props) {
         </View>
       </ScrollView>
 
-      <TouchableOpacity style={styles.doneButton} onPress={() => navigation.replace('RouteLibrary')}>
+      <TouchableOpacity style={styles.doneButton} onPress={() => navigation.goBack()}>
         <Text style={styles.doneText}>Done</Text>
       </TouchableOpacity>
     </View>
