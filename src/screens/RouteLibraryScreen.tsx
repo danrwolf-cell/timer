@@ -121,6 +121,10 @@ export function RouteLibraryScreen({ navigation }: Props) {
         )}
       />
 
+      <TouchableOpacity style={styles.importButton} onPress={() => navigation.navigate('ScanRoute')}>
+        <Text style={styles.importButtonText}>Scan Route Sheet (photo / PDF)</Text>
+      </TouchableOpacity>
+
       <TouchableOpacity style={styles.importButton} onPress={importBeehive2026}>
         <Text style={styles.importButtonText}>Import 2026 Beehive Enduro</Text>
       </TouchableOpacity>

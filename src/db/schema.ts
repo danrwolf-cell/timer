@@ -106,5 +106,13 @@ export function initSchema(): void {
       reason     TEXT,
       FOREIGN KEY (route_id) REFERENCES routes(id) ON DELETE CASCADE
     );
+
+    -- Small key/value store for app-level settings. First use: the
+    -- self-hosted route-scan extraction server's URL (see route-scan-client.ts) —
+    -- there's no default, it's whatever the rider deploys.
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key   TEXT PRIMARY KEY NOT NULL,
+      value TEXT NOT NULL
+    );
   `);
 }

@@ -292,3 +292,19 @@ export function getRawCscLog(rideId: number): RawCscRow[] {
     rideId
   ) as RawCscRow[];
 }
+
+// App settings — small key/value store. First use: the self-hosted
+// route-scan server URL (see route-scan-client.ts).
+export function getSetting(key: string): string | null {
+  const row = getDb().getFirstSync(
+    'SELECT value FROM app_settings WHERE key = ?', key
+  ) as { value: string } | null;
+  return row?.value ?? null;
+}
+
+export function setSetting(key: string, value: string): void {
+  getDb().runSync(
+    'INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+    key, value
+  );
+}
