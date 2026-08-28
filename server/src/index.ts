@@ -51,7 +51,7 @@ app.post('/extract', async (req, res) => {
         : { type: 'image', source: { type: 'base64', media_type: mimeType, data: dataBase64 } };
 
     const response = await client.messages.parse({
-      model: 'claude-opus-5',
+      model: 'claude-sonnet-5',
       max_tokens: 16000,
       thinking: { type: 'adaptive' },
       output_config: {

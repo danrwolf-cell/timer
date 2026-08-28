@@ -120,7 +120,7 @@ export async function extractRouteSheetDirect(
         'anthropic-version': ANTHROPIC_VERSION,
       },
       body: JSON.stringify({
-        model: 'claude-opus-5',
+        model: 'claude-sonnet-5',
         max_tokens: 16000,
         thinking: { type: 'adaptive' },
         output_config: {
