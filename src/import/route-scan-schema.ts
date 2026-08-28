@@ -1,7 +1,13 @@
 // Zod schema for the extraction model's output. Hand-mirrors
-// ExtractedRouteSheet in ../../src/import/route-scan.ts — keep the two in
-// sync; this one exists only because zodOutputFormat() needs a real Zod
-// schema, and the client-side type has no reason to carry a zod dependency.
+// ExtractedRouteSheet in ./route-scan.ts — keep the two in sync; this one
+// exists only because zodOutputFormat() needs a real Zod schema, and
+// route-scan.ts's plain TS interfaces are shared by callers that have no
+// other reason to carry a zod dependency.
+//
+// Shared between the app (direct-from-phone extraction, route-scan-direct.ts)
+// and server/ (the optional self-hosted path) — both call Anthropic with
+// this same schema, so it lives here rather than duplicated in server/.
+//
 // zodOutputFormat() (@anthropic-ai/sdk/helpers/zod) is typed against the
 // 'zod/v4' namespace specifically — importing plain 'zod' here would build
 // a schema whose internals don't structurally match what it expects.

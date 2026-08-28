@@ -98,7 +98,12 @@ export function RouteLibraryScreen({ navigation }: Props) {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Routes</Text>
+      <View style={styles.titleRow}>
+        <Text style={styles.title}>Routes</Text>
+        <TouchableOpacity onPress={() => navigation.navigate('Settings')}>
+          <Text style={styles.settingsLink}>Settings</Text>
+        </TouchableOpacity>
+      </View>
 
       <FlatList
         data={routes}
@@ -228,7 +233,12 @@ const C = { bg: '#0f0f0f', card: '#1a1a1a', accent: '#FF6600', text: '#fff', mut
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg, paddingTop: 60 },
-  title: { color: C.text, fontSize: 28, fontWeight: '800', paddingHorizontal: 20, marginBottom: 16 },
+  titleRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: 20, marginBottom: 16,
+  },
+  title: { color: C.text, fontSize: 28, fontWeight: '800' },
+  settingsLink: { color: C.accent, fontSize: 14, fontWeight: '700' },
   empty: { color: C.muted, textAlign: 'center', marginTop: 40, fontSize: 16 },
   routeRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

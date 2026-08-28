@@ -11,8 +11,8 @@ import 'dotenv/config';
 import express from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
-import { ExtractedRouteSheetSchema } from './schema';
-import { EXTRACTION_PROMPT } from './prompt';
+import { ExtractedRouteSheetSchema } from '../../src/import/route-scan-schema';
+import { EXTRACTION_PROMPT } from '../../src/import/route-scan-prompt';
 import { toRouteSheetData, type ExtractedRouteSheet } from '../../src/import/route-scan';
 import { checkKeyTimes } from '../../src/import/route-sheet';
 

@@ -3,4 +3,5 @@ export type RootStackParamList = {
   PostRide: { rideId: number };
   Device: { routeId: number };
   ScanRoute: undefined;
+  Settings: undefined;
 };

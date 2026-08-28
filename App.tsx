@@ -8,6 +8,7 @@ import { RouteLibraryScreen } from './src/screens/RouteLibraryScreen';
 import { PostRideScreen } from './src/screens/PostRideScreen';
 import { DeviceScreen } from './src/screens/DeviceScreen';
 import { ScanRouteScreen } from './src/screens/ScanRouteScreen';
+import { SettingsScreen } from './src/screens/SettingsScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -30,6 +31,7 @@ export default function App() {
         <Stack.Screen name="PostRide" component={PostRideScreen} />
         <Stack.Screen name="Device" component={DeviceScreen} />
         <Stack.Screen name="ScanRoute" component={ScanRouteScreen} />
+        <Stack.Screen name="Settings" component={SettingsScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

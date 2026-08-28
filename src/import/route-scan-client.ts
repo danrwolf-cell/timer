@@ -3,23 +3,7 @@
 // response; ScanRouteScreen owns persisting the settings URL and, on save,
 // calling importRouteSheet().
 
-import { type RouteSheetData, type CheckpointResult } from './route-sheet';
-
-export interface ExtractSuccess {
-  ok: true;
-  routeSheet: RouteSheetData;
-  checkpointResults: CheckpointResult[];
-  allPassed: boolean;
-}
-
-export interface ExtractFailure {
-  ok: false;
-  error: string;
-}
-
-export type ExtractResponse = ExtractSuccess | ExtractFailure;
-
-export type ScanMimeType = 'application/pdf' | 'image/jpeg' | 'image/png';
+import { type ExtractResponse, type ScanMimeType } from './route-scan-result';
 
 /** POSTs a photographed or uploaded route sheet to the extraction server. */
 export async function extractRouteSheet(

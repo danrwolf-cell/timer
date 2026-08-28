@@ -3,6 +3,9 @@
 // checking each checkpoint against computeKeyTime) happens in the caller,
 // in deterministic TS — see route-scan.ts. Get the model to a faithful
 // transcription and let the engine be the judge of whether it's right.
+//
+// Shared between the app's direct-from-phone path (route-scan-direct.ts)
+// and server/ (the optional self-hosted path) — same prompt either way.
 
 export const EXTRACTION_PROMPT = `You are transcribing an enduro motorcycle route sheet (a "roll chart" or "confirmation sheet") into structured data. Read the attached document carefully and extract exactly what is printed — do not compute or infer numbers that are not written on the sheet.
 

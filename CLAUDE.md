@@ -32,9 +32,14 @@ If you change a golden-reference TS module: `make -C firmware/test vectors && ma
 | `src/engine/free-territory.ts` | AMA free-territory rules: calibration zone, after-check, before/after gas. `explicitZones` param overrides the formula with a sheet's own literal mile ranges when given — real sheets routinely don't follow the AMA_DEFAULTS formula. Pure. No UI yet. |
 | `src/engine/replay.ts` | Post-ride replay: feeds `raw_csc_log` rows through parser + engine → deviation-over-distance. |
 | `src/import/route-sheet.ts` | `RouteSheetData`, `checkKeyTimes`/`validateKeyTimes` — re-derives every printed key time from segments via `computeKeyTime` and reports/throws on mismatch. The trust gate for any transcribed or extracted route. No DB import — unit-testable without SQLite. |
-| `src/import/route-scan.ts` | Types + pure conversion for LLM-extracted route sheets: `clockTimesToSecondsSinceStart` (12-hour wraparound), `toRouteSheetData`. Mirrors `server/src/schema.ts` by hand. |
+| `src/import/route-scan.ts` | Types + pure conversion for LLM-extracted route sheets: `clockTimesToSecondsSinceStart` (12-hour wraparound), `toRouteSheetData`. |
+| `src/import/route-scan-schema.ts` | Zod schema mirroring `ExtractedRouteSheet`, for `zodOutputFormat()`. Shared by `server/` (imports it directly from `src/`) — keep both in sync by hand. |
+| `src/import/route-scan-prompt.ts` | The extraction prompt. Shared by the direct path and `server/`. |
+| `src/import/route-scan-direct.ts` | **Primary scan path.** Calls the Anthropic Messages API directly from the phone via plain `fetch` — NOT `@anthropic-ai/sdk`, whose credential-resolution code imports `node:fs` and fails to bundle under Metro (confirmed via `expo export`, not assumed). Hand-mirrors the JSON Schema `zodOutputFormat()` would produce, since the SDK helper can't be used client-side either; validates the model's response against `route-scan-schema.ts` itself. Uses the rider's own key from `api-key-store.ts`. |
+| `src/import/api-key-store.ts` | Rider's Anthropic API key, in the device Keychain/Keystore via `expo-secure-store` — never shipped with the app, never in SQLite. |
+| `src/import/route-scan-client.ts` | Fetch client for the *optional* self-hosted extraction server (`server/`) — an alternate path for keeping the key off the phone entirely. Not the default; `route-scan-direct.ts` is. |
+| `src/import/route-scan-result.ts` | Shared `ExtractResponse` shape between the direct and self-hosted paths, so `ScanRouteScreen` treats them identically. |
 | `src/import/import-route.ts` | DB-writing half of import (`importRouteSheet`) — separated from `route-sheet.ts` so that module stays free of the `expo-sqlite` import. |
-| `src/import/route-scan-client.ts` | Fetch client for the self-hosted extraction server (`server/`). |
 | `src/import/beehive-2026.ts` | Hand-transcribed real route sheet (both splits), validated in `beehive-2026.test.ts` — a worked example of the `route-sheet.ts` contract. |
 | `src/ble/csc-parser.ts` | Decodes CSC GATT characteristic 0x2A5B. Distinguishes power-cycle from genuine 32-bit rollover. Golden reference. |
 | `src/ble/ble-instance.ts` | The single shared native `BleManager` instance. |
@@ -47,7 +52,8 @@ If you change a golden-reference TS module: `make -C firmware/test vectors && ma
 | `src/db/schema.ts` | SQLite schema + additive PRAGMA-guarded migrations. Tables: `routes`, `route_segments`, `rides`, `ride_log`, `raw_csc_log`. |
 | `src/db/queries.ts` | Typed query helpers. `getRouteRules()` returns `FtRules` with AMA fallbacks. `ride_log.source`: `'live'`\|`'replay'`. |
 | `src/screens/RouteLibraryScreen.tsx` | Route list + modal sheet builder + entry points to scan-import and the Beehive 2026 sample import. |
-| `src/screens/ScanRouteScreen.tsx` | Photo/PDF route-sheet import: capture or pick a file, POST to the self-hosted extraction server (`server/`), review per-checkpoint pass/fail, save. |
+| `src/screens/ScanRouteScreen.tsx` | Photo/PDF route-sheet import: capture or pick a file, extract via `route-scan-direct.ts` (rider's own key), review per-checkpoint pass/fail, save. |
+| `src/screens/SettingsScreen.tsx` | Anthropic API key entry (`api-key-store.ts`). |
 | `src/screens/PostRideScreen.tsx` | Hand-rolled SVG deviation chart, stat boxes. |
 | `src/screens/DeviceScreen.tsx` | Handlebar-unit companion: connect, push route, drive ride, pull log. Lean. |
 | `firmware/core/` | Pure C golden-reference port: `pace_engine`, `csc_parser`, `route_sheet` codec. Doubles as Arduino library `EnduroCore`. |
@@ -56,7 +62,7 @@ If you change a golden-reference TS module: `make -C firmware/test vectors && ma
 | `docs/BUILD-PLAN.md` | Authoritative product strategy, phase structure, and priority queue. Read this before planning any work. |
 | `docs/BLE-PROTOCOL.md` | Wire format phone↔device (v1): UUIDs, framing, CRC. Change TS+C codecs together. |
 | `docs/HARDWARE.md` | Wiring (5 jumpers), flashing, bring-up checklist for the physical prototype. |
-| `server/` | Standalone Node/Express service: `POST /extract` turns a photographed or uploaded route sheet into `RouteSheetData` via a vision model call, checked against its own printed key times before returning. Holds the Anthropic API key — deploy separately, never embed the key in the app. See `server/README.md`. |
+| `server/` | **Optional, not the default.** Standalone Node/Express service doing the same extraction+check as `route-scan-direct.ts`, for riders who'd rather keep the API key off the phone entirely (e.g. one deployment shared across several devices). See `server/README.md`. |
 
 ---
 
@@ -125,5 +131,6 @@ Development branch: `DEV`. Main branch exists on GitHub. PR against `main` when 
 - Do not drop or rename SQLite columns — additive migrations only
 - Do not add the `bluetooth-central` background mode again — it's already in `app.json`
 - Do not run `playwright install` — Chromium is pre-installed at `/opt/pw-browsers`
-- Do not embed an Anthropic API key in the app — it belongs only in `server/`'s environment; the phone talks to that server, never to the Anthropic API directly
+- Do not ship the app with an Anthropic API key baked in — it's entered by the rider in Settings and stored via `expo-secure-store`, never in source, never in `app_settings` (plain SQLite)
+- Do not import `@anthropic-ai/sdk` into `src/` (the phone app) — its credential-resolution path imports `node:fs` and fails to bundle under Metro (confirmed, not assumed: `npx expo export` errors on it). It's fine in `server/`, a plain Node process. The phone calls the Messages API via plain `fetch` instead — see `route-scan-direct.ts`.
 - Do not let a route (transcribed or extracted) skip `checkKeyTimes`/`validateKeyTimes` — a sheet's own printed key times are the trust gate

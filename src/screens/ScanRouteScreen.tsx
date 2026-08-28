@@ -1,39 +1,33 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, TouchableOpacity, TextInput, StyleSheet, ScrollView, Alert, ActivityIndicator,
+  View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, ActivityIndicator,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from './types';
-import { getSetting, setSetting } from '../db/queries';
-import { extractRouteSheet, type ScanMimeType } from '../import/route-scan-client';
+import { getApiKey } from '../import/api-key-store';
+import { extractRouteSheetDirect } from '../import/route-scan-direct';
+import { type ScanMimeType } from '../import/route-scan-result';
 import { importRouteSheet } from '../import/import-route';
 import type { RouteSheetData, CheckpointResult } from '../import/route-sheet';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'ScanRoute'> };
 
-const SETTING_KEY_SERVER_URL = 'scanServerUrl';
-
 type Pending = { mimeType: ScanMimeType; dataBase64: string; sourceLabel: string };
 type Result = { routeSheet: RouteSheetData; checkpointResults: CheckpointResult[]; allPassed: boolean };
 
 export function ScanRouteScreen({ navigation }: Props) {
-  const [serverUrl, setServerUrl] = useState('');
+  const [hasKey, setHasKey] = useState<boolean | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
   const [scanning, setScanning] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setServerUrl(getSetting(SETTING_KEY_SERVER_URL) ?? '');
+    getApiKey().then(k => setHasKey(!!k));
   }, []);
-
-  function saveServerUrl(url: string) {
-    setServerUrl(url);
-    setSetting(SETTING_KEY_SERVER_URL, url);
-  }
 
   async function takePhoto() {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
@@ -75,13 +69,14 @@ export function ScanRouteScreen({ navigation }: Props) {
 
   async function runScan() {
     if (!pending) return;
-    if (!serverUrl.trim()) {
-      Alert.alert('Set the extraction server URL first');
+    const apiKey = await getApiKey();
+    if (!apiKey) {
+      Alert.alert('No API key set', 'Add your Anthropic API key in Settings first.');
       return;
     }
     setScanning(true);
     setError(null);
-    const response = await extractRouteSheet(serverUrl.trim(), pending.mimeType, pending.dataBase64);
+    const response = await extractRouteSheetDirect(apiKey, pending.mimeType, pending.dataBase64);
     setScanning(false);
     if (!response.ok) {
       setError(response.error);
@@ -113,16 +108,14 @@ export function ScanRouteScreen({ navigation }: Props) {
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.title}>Scan Route Sheet</Text>
 
-        <Text style={styles.sectionLabel}>Extraction server</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="https://your-server.example.com"
-          placeholderTextColor="#888"
-          autoCapitalize="none"
-          autoCorrect={false}
-          value={serverUrl}
-          onChangeText={saveServerUrl}
-        />
+        {hasKey === false && (
+          <View style={styles.card}>
+            <Text style={styles.cardBody}>No API key set — extraction runs directly from this phone to Anthropic's API, which needs a key.</Text>
+            <TouchableOpacity style={styles.scanButton} onPress={() => navigation.navigate('Settings')}>
+              <Text style={styles.scanButtonText}>Go to Settings</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         <Text style={styles.sectionLabel}>Source</Text>
         <View style={styles.row}>
@@ -205,10 +198,6 @@ const styles = StyleSheet.create({
   content: { padding: 24, paddingTop: 60, paddingBottom: 60 },
   title: { color: C.text, fontSize: 28, fontWeight: '800', marginBottom: 24 },
   sectionLabel: { color: C.muted, fontSize: 13, letterSpacing: 1, marginTop: 12, marginBottom: 8 },
-  input: {
-    backgroundColor: C.card, color: C.text, borderRadius: 8,
-    padding: 14, fontSize: 15,
-  },
   row: { flexDirection: 'row', gap: 10 },
   sourceButton: {
     flex: 1, borderWidth: 1, borderColor: C.accent, borderRadius: 10,
