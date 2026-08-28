@@ -105,7 +105,7 @@ Remaining Phase 1:
 
 ## Branch / PR convention
 
-Development branch: `claude/hardware-prototype-mobile-app-zhwolc`. Main branch exists on GitHub. PR against `main` when a phase or priority block is complete.
+Development branch: `DEV`. Main branch exists on GitHub. PR against `main` when a phase or priority block is complete.
 
 ---
 
