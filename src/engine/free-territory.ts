@@ -91,18 +91,51 @@ export interface FtInterval {
   reasons: string[]; // which rules contributed this interval
 }
 
+/**
+ * A free zone taken verbatim from a route sheet (mile range the organizer
+ * marked as no-check territory), as opposed to one derived from FtRules.
+ */
+export interface FtZoneInput {
+  start: number;
+  end: number;
+  reason?: string;
+}
+
 // -------------------------------------------------------------------------
 // Per-rule interval generators
 // -------------------------------------------------------------------------
 
 /**
- * Raw free intervals from each rule, before merging.
+ * Raw free intervals, before merging.
+ *
+ * When `explicitZones` is given (non-empty), those zones are used verbatim
+ * and the FtRules formula is not applied at all. Real route sheets publish
+ * free-territory widths that don't follow the AMA-default formula — e.g. a
+ * calibration/landmark zone with no rule behind it, or a before-gas zone
+ * sized to the approach road rather than `milesBeforeGas`. `hasSecretChecks`
+ * only gates the rule-derived path; a sheet's explicit zones are facts, not
+ * a computed default, so they apply regardless of that flag.
+ *
+ * With no explicit zones, falls back to the FtRules-derived generation
+ * (unchanged from before this parameter existed).
  * All intervals are clamped to [0, totalMiles].
  */
 export function freeIntervals(
   segments: FtSegment[],
-  rules: FtRules
+  rules: FtRules,
+  explicitZones?: FtZoneInput[]
 ): FtInterval[] {
+  if (explicitZones && explicitZones.length > 0) {
+    const total = courseLength(segments);
+    return explicitZones
+      .map(z => ({
+        start: Math.max(0, z.start),
+        end: Math.min(total, z.end),
+        reasons: [z.reason ?? 'sheet'],
+      }))
+      .filter(i => i.end > i.start);
+  }
+
   if (!rules.hasSecretChecks) return [];
 
   const total = courseLength(segments);
@@ -177,8 +210,12 @@ export function mergeIntervals(intervals: FtInterval[]): FtInterval[] {
 // -------------------------------------------------------------------------
 
 /** Merged green zones where a secret check would be rules-illegal. */
-export function freeTerritory(segments: FtSegment[], rules: FtRules): FtInterval[] {
-  return mergeIntervals(freeIntervals(segments, rules));
+export function freeTerritory(
+  segments: FtSegment[],
+  rules: FtRules,
+  explicitZones?: FtZoneInput[]
+): FtInterval[] {
+  return mergeIntervals(freeIntervals(segments, rules, explicitZones));
 }
 
 /**
@@ -186,11 +223,16 @@ export function freeTerritory(segments: FtSegment[], rules: FtRules): FtInterval
  * These are the intervals not covered by any free-territory rule.
  * Clamped to [0, courseLength].
  */
-export function checkableTerritory(segments: FtSegment[], rules: FtRules): FtInterval[] {
-  if (!rules.hasSecretChecks) return [];
+export function checkableTerritory(
+  segments: FtSegment[],
+  rules: FtRules,
+  explicitZones?: FtZoneInput[]
+): FtInterval[] {
+  const hasExplicit = !!explicitZones && explicitZones.length > 0;
+  if (!rules.hasSecretChecks && !hasExplicit) return [];
 
   const total = courseLength(segments);
-  const free = freeTerritory(segments, rules);
+  const free = freeTerritory(segments, rules, explicitZones);
 
   if (free.length === 0) return [{ start: 0, end: total, reasons: ['uncovered'] }];
 
@@ -215,8 +257,10 @@ export function checkableTerritory(segments: FtSegment[], rules: FtRules): FtInt
 export function freeTerritoryAt(
   mile: number,
   segments: FtSegment[],
-  rules: FtRules
+  rules: FtRules,
+  explicitZones?: FtZoneInput[]
 ): boolean {
-  if (!rules.hasSecretChecks) return false;
-  return freeTerritory(segments, rules).some(z => mile >= z.start && mile <= z.end);
+  const hasExplicit = !!explicitZones && explicitZones.length > 0;
+  if (!rules.hasSecretChecks && !hasExplicit) return false;
+  return freeTerritory(segments, rules, explicitZones).some(z => mile >= z.start && mile <= z.end);
 }

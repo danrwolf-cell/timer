@@ -1,6 +1,6 @@
 import { getDb } from './schema';
 import { type Segment } from '../engine/pace-engine';
-import { type FtRules, AMA_DEFAULTS } from '../engine/free-territory';
+import { type FtRules, type FtZoneInput, AMA_DEFAULTS } from '../engine/free-territory';
 
 export interface RouteRow {
   id: number;
@@ -100,6 +100,36 @@ export function replaceSegments(routeId: number, segments: Segment[]): void {
   const db = getDb();
   db.runSync('DELETE FROM route_segments WHERE route_id = ?', routeId);
   segments.forEach((seg, i) => insertSegment(routeId, i, seg));
+}
+
+// Free-territory zones (verbatim from a route sheet — see free-territory.ts)
+interface FreeZoneRow {
+  start_mile: number;
+  end_mile: number;
+  reason: string | null;
+}
+
+export function getFreeZones(routeId: number): FtZoneInput[] {
+  const rows = getDb().getAllSync(
+    'SELECT start_mile, end_mile, reason FROM route_free_zones WHERE route_id = ? ORDER BY start_mile',
+    routeId
+  ) as FreeZoneRow[];
+  return rows.map(r => ({
+    start: r.start_mile,
+    end: r.end_mile,
+    reason: r.reason ?? undefined,
+  }));
+}
+
+export function replaceFreeZones(routeId: number, zones: FtZoneInput[]): void {
+  const db = getDb();
+  db.runSync('DELETE FROM route_free_zones WHERE route_id = ?', routeId);
+  for (const z of zones) {
+    db.runSync(
+      'INSERT INTO route_free_zones (route_id, start_mile, end_mile, reason) VALUES (?, ?, ?, ?)',
+      routeId, z.start, z.end, z.reason ?? null
+    );
+  }
 }
 
 // Rides

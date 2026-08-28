@@ -85,5 +85,18 @@ export function initSchema(): void {
       wheel_event_time INTEGER NOT NULL,
       FOREIGN KEY (ride_id) REFERENCES rides(id) ON DELETE CASCADE
     );
+
+    -- Free-territory zones taken verbatim from a route sheet (mile ranges the
+    -- organizer marked no-check), in course-cumulative miles. See
+    -- src/engine/free-territory.ts: explicit zones override the FtRules
+    -- formula, which real sheets routinely don't follow exactly.
+    CREATE TABLE IF NOT EXISTS route_free_zones (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      route_id   INTEGER NOT NULL,
+      start_mile REAL NOT NULL,
+      end_mile   REAL NOT NULL,
+      reason     TEXT,
+      FOREIGN KEY (route_id) REFERENCES routes(id) ON DELETE CASCADE
+    );
   `);
 }

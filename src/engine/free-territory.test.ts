@@ -10,6 +10,7 @@ import {
   type FtSegment,
   type FtRules,
   type FtInterval,
+  type FtZoneInput,
 } from './free-territory';
 
 // -------------------------------------------------------------------------
@@ -408,5 +409,56 @@ describe('realistic multi-event course', () => {
     // [18,23] before+after gas merged, [35,38] after-check2
     // cal and after-check1 are disjoint (2.9 < 8), so 4 zones total
     expect(free).toHaveLength(4);
+  });
+});
+
+// -------------------------------------------------------------------------
+// Explicit zones (route sheets that publish free territory verbatim,
+// rather than leaving it to be derived from FtRules)
+// -------------------------------------------------------------------------
+
+describe('explicit zones', () => {
+  const segments: FtSegment[] = [seg(50)];
+  const zones: FtZoneInput[] = [
+    { start: 5, end: 6, reason: 'landmark' },
+    { start: 40, end: 46 }, // no reason given — falls back to 'sheet'
+  ];
+
+  it('freeIntervals uses explicit zones verbatim instead of the FtRules formula', () => {
+    const intervals = freeIntervals(segments, RULES, zones);
+    expect(intervals).toEqual([
+      { start: 5, end: 6, reasons: ['landmark'] },
+      { start: 40, end: 46, reasons: ['sheet'] },
+    ]);
+  });
+
+  it('ignores FtRules entirely when explicit zones are given — no calibration zone appears', () => {
+    const intervals = freeIntervals(segments, RULES, zones);
+    expect(intervalContains(intervals, 1)).toBe(false); // inside AMA_DEFAULTS calibration zone
+  });
+
+  it('applies regardless of hasSecretChecks, since it is not a computed default', () => {
+    expect(freeTerritoryAt(5.5, segments, noSecrets(), zones)).toBe(true);
+    expect(checkableTerritory(segments, noSecrets(), zones)).not.toHaveLength(0);
+  });
+
+  it('freeTerritoryAt / checkableTerritory reflect the explicit zones', () => {
+    expect(freeTerritoryAt(5.5, segments, RULES, zones)).toBe(true);
+    expect(freeTerritoryAt(20, segments, RULES, zones)).toBe(false);
+
+    const checkable = checkableTerritory(segments, RULES, zones);
+    expect(intervalContains(checkable, 20)).toBe(true);
+    expect(intervalContains(checkable, 5.5)).toBe(false);
+  });
+
+  it('clamps explicit zones to the course length', () => {
+    const short: FtSegment[] = [seg(10)];
+    const intervals = freeIntervals(short, RULES, [{ start: 5, end: 46 }]);
+    expect(intervals).toEqual([{ start: 5, end: 10, reasons: ['sheet'] }]);
+  });
+
+  it('an empty explicit-zones array falls back to the FtRules formula', () => {
+    const intervals = freeIntervals(segments, RULES, []);
+    expect(intervalContains(intervals, 1)).toBe(true); // AMA calibration zone applies again
   });
 });

@@ -8,6 +8,8 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from './types';
 import { listRoutes, insertRoute, deleteRoute, replaceSegments, type RouteRow } from '../db/queries';
 import type { Segment } from '../engine/pace-engine';
+import { importRouteSheet } from '../import/import-route';
+import { BEEHIVE_2026_AB, BEEHIVE_2026_ALL_OTHERS } from '../import/beehive-2026';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'RouteLibrary'> };
 
@@ -66,6 +68,20 @@ export function RouteLibraryScreen({ navigation }: Props) {
     setSegments([EMPTY_SEGMENT()]);
   }
 
+  function importBeehive2026() {
+    Alert.alert('2026 Beehive Enduro', 'Which split are you riding?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'A & B riders', onPress: () => {
+        importRouteSheet(BEEHIVE_2026_AB);
+        setRoutes(listRoutes());
+      }},
+      { text: 'All others', onPress: () => {
+        importRouteSheet(BEEHIVE_2026_ALL_OTHERS);
+        setRoutes(listRoutes());
+      }},
+    ]);
+  }
+
   function confirmDelete(route: RouteRow) {
     Alert.alert('Delete route', `Delete "${route.name}"?`, [
       { text: 'Cancel', style: 'cancel' },
@@ -110,6 +126,10 @@ export function RouteLibraryScreen({ navigation }: Props) {
           </TouchableOpacity>
         )}
       />
+
+      <TouchableOpacity style={styles.importButton} onPress={importBeehive2026}>
+        <Text style={styles.importButtonText}>Import 2026 Beehive Enduro</Text>
+      </TouchableOpacity>
 
       <TouchableOpacity style={styles.addButton} onPress={() => setShowBuilder(true)}>
         <Text style={styles.addButtonText}>+ New Route</Text>
@@ -231,6 +251,11 @@ const styles = StyleSheet.create({
     borderRadius: 10, alignItems: 'center',
   },
   addButtonText: { color: '#000', fontWeight: '800', fontSize: 16 },
+  importButton: {
+    marginHorizontal: 20, marginTop: 20, padding: 14,
+    borderRadius: 10, borderWidth: 1, borderColor: C.accent, alignItems: 'center',
+  },
+  importButtonText: { color: C.accent, fontWeight: '700', fontSize: 14 },
   modal: { flex: 1, backgroundColor: C.bg },
   modalContent: { padding: 24, paddingBottom: 60 },
   modalTitle: { color: C.text, fontSize: 24, fontWeight: '800', marginBottom: 20 },
