@@ -107,7 +107,7 @@ export function RouteLibraryScreen({ navigation }: Props) {
         renderItem={({ item }) => (
           <TouchableOpacity
             style={styles.routeRow}
-            onPress={() => navigation.navigate('PreRide', { routeId: item.id })}
+            onPress={() => navigation.navigate('Device', { routeId: item.id })}
             onLongPress={() => confirmDelete(item)}
           >
             <View>
@@ -115,12 +115,6 @@ export function RouteLibraryScreen({ navigation }: Props) {
               {item.event_date ? <Text style={styles.routeDate}>{item.event_date}</Text> : null}
             </View>
             <View style={styles.rowActions}>
-              <TouchableOpacity
-                style={styles.deviceButton}
-                onPress={() => navigation.navigate('Device', { routeId: item.id })}
-              >
-                <Text style={styles.deviceButtonText}>DEVICE</Text>
-              </TouchableOpacity>
               <Text style={styles.chevron}>›</Text>
             </View>
           </TouchableOpacity>
@@ -226,7 +220,7 @@ export function RouteLibraryScreen({ navigation }: Props) {
   );
 }
 
-const C = { bg: '#0f0f0f', card: '#1a1a1a', accent: '#f0a500', text: '#fff', muted: '#888' };
+const C = { bg: '#0f0f0f', card: '#1a1a1a', accent: '#FF6600', text: '#fff', muted: '#888' };
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg, paddingTop: 60 },
@@ -241,11 +235,6 @@ const styles = StyleSheet.create({
   routeDate: { color: C.muted, fontSize: 13, marginTop: 2 },
   chevron: { color: C.muted, fontSize: 24 },
   rowActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  deviceButton: {
-    borderWidth: 1, borderColor: C.accent, borderRadius: 6,
-    paddingVertical: 4, paddingHorizontal: 10,
-  },
-  deviceButtonText: { color: C.accent, fontSize: 11, fontWeight: '800', letterSpacing: 1 },
   addButton: {
     margin: 20, padding: 16, backgroundColor: C.accent,
     borderRadius: 10, alignItems: 'center',

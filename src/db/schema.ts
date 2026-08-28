@@ -55,6 +55,14 @@ export function initSchema(): void {
   migrateAddColumn(database, 'routes', 'ft_miles_before_gas', 'REAL');
   migrateAddColumn(database, 'routes', 'ft_miles_after_gas', 'REAL');
   migrateAddColumn(database, 'routes', 'ft_calibration_mile', 'REAL');
+  // Event start config: official key time (absolute, second-precision) and the
+  // rider's row. Held on the phone so it can be entered well ahead of the
+  // start and pushed to the device whenever it is connected.
+  migrateAddColumn(database, 'routes', 'key_time_epoch_ms', 'INTEGER');
+  migrateAddColumn(database, 'routes', 'rider_row', 'INTEGER');
+  // Signed ms the timekeeper's clock reads ahead of this phone's clock.
+  // Key times are quoted in event time, so this is what makes them absolute.
+  migrateAddColumn(database, 'routes', 'clock_offset_ms', 'INTEGER');
 
   database.execSync(`
 

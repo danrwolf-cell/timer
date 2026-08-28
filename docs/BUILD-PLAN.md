@@ -27,7 +27,7 @@ This strategy has two practical consequences for how the phone code is written r
 
 1. **The engine and parser are the golden reference.** `pace-engine.ts` and `csc-parser.ts` are pure functions with no platform dependencies. They stay that way permanently. The C firmware gets validated against the TypeScript unit tests — same inputs, same outputs. Do not add side effects, timers, or RN imports to these files. *(Implemented: `firmware/core` is the C port; `firmware/test` generates vectors from the TS modules and validates the port host-side — `make -C firmware/test`.)*
 
-2. **The phone live-screen is deliberately lean and partially throwaway.** It needs to be correct and testable, not polished. Time spent on live-screen animation, haptics, and gesture refinement before the ESP32 path is validated is mostly wasted. Build it to the point where you can ride with it and trust the numbers. Stop there until the hardware path is proven.
+2. **The phone live-screen was throwaway, and has now been thrown away.** It existed to prove the engine before the hardware worked. It did, and it is gone — see "The phone live-screen: removed" below. The device is the ride surface; the phone is route entry, device control and post-ride analytics.
 
 ---
 
@@ -36,27 +36,36 @@ This strategy has two practical consequences for how the phone code is written r
 These survive into the companion role unchanged or with minor adaptation:
 
 - **Route library and sheet builder** — the primary input surface regardless of hardware
-- **Pre-ride setup flow** — sensor pairing, circumference confirmation, start-time entry
+- **Pre-ride setup** — now on the Device screen: event-clock sync, key time, row, wheel circumference, arming the device
 - **Route sharing** (Phase 2) — search, publish, AirDrop-style local share
 - **Post-ride analytics** — deviation chart, session history, per-event trends
 - **SQLite store** — routes, segments, rides, raw CSC log, derived ride log
 
 ---
 
-## What the phone live-screen is (deliberately not)
+## The phone live-screen: removed (August 2026)
 
-The phone live-screen is a functional demo and a validation harness, not a shipping product. Accept that:
+The standalone phone-ride path served its purpose and is gone. Once the
+handlebar unit was riding — displaying deviation, running its own countdown,
+logging raw CSC and handing the log back for replay — a second, weaker ride
+surface on the phone was only a source of confusion: it had none of the clock
+sync, key time or row features, and validating a touch UI that was always
+going to be thrown away is exactly the trap this plan warned about.
 
-- Touch interaction is adequate for now; BLE remote is Phase 2 on phone, primary on ESP32
-- Screen brightness, keep-awake, and anti-ghost-touch are worth doing but not blocking
-- Polish (animation, haptics, font tuning) waits until the hardware path is proven
+Removed: `PreRideScreen`, `LiveRideScreen`, `SensorStatusBar`, `ride-store.ts`,
+`ble-manager.ts` (phone-side CSC), `use-ble-sensor.ts`. Recoverable from git
+history if a phone-only fallback is ever wanted.
+
+The phone keeps route entry, device control, and post-ride analytics. Engine
+validation now runs through the stronger path: pull the device's raw log and
+replay it through the same TypeScript golden reference.
 
 ---
 
 ## Current codebase state (as of this writing)
 
-Tests: 109/109 passing (`npx jest`), plus the firmware host-side vector suite
-(`make -C firmware/test`, 1418 checks) validating the C port against the TS
+Tests: 135/135 passing (`npx jest`), plus the firmware host-side vector suite
+(`make -C firmware/test`, 1425 checks) validating the C port against the TS
 golden reference.
 
 | File | Status |
@@ -65,11 +74,9 @@ golden reference.
 | `src/engine/free-territory.ts` | **New.** Pure module. Free-territory/secret-check planning: AMA-traditional rules, `freeTerritory`, `checkableTerritory`, `freeTerritoryAt`, `mergeIntervals`. No UI surface yet — see Phase 2. |
 | `src/engine/replay.ts` | **New.** Replay harness: feeds `raw_csc_log` rows through parser + engine, produces deviation-over-distance. Snapshot-tested. Priority 1 done. |
 | `src/ble/csc-parser.ts` | Decided. Power-cycle vs. genuine 32-bit rollover distinguished by previous counter value. 150 mph speed ceiling backstop. Priority 2 done. |
-| `src/ble/ble-manager.ts` | Working. Captures decoded CSC pair to `raw_csc_log` unconditionally (including null-update cases). iOS backgrounding untested — see Priority 4b. |
-| `src/store/ride-store.ts` | Working. Auto-reset now uses `crossedReset()` — boundary-crossing detector. Priority 4a done. |
 | `src/db/schema.ts` | Working. `raw_csc_log` table added. Additive migrations for `check_type`, `has_secret_checks`, and FT rule columns via PRAGMA-guarded ALTERs. |
 | `src/db/queries.ts` | Working. `check_type` in read/write. `getRouteRules()` returns `FtRules` with per-column AMA fallbacks. `ride_log.source` column (`'live'`\|`'replay'`) distinguishes live-computed from post-hoc replay. |
-| All four screens | Working shell. Phone live-screen intentionally lean per above. |
+| Screens | RouteLibrary, Device, PostRide. The standalone ride path was removed — see above. |
 
 ---
 
@@ -87,15 +94,53 @@ Both a genuine 32-bit rollover and a sensor power-cycle present as negative `del
 
 ---
 
-### Priority 3 — Handlebar BLE remote
+### Priority 3 — Handlebar buttons: RESET, UP, DOWN ✅ DONE (hardwired, not BLE)
 
-**Decision: Priority 2 item on phone, primary input on ESP32.**
+**Decision (August 2026, reversed from the original BLE-remote plan below):
+input on the handlebar unit is hardwired GPIO buttons, not a Bluetooth
+remote.** Rationale: BT shutter/media remotes (AB Shutter 3, Satechi) don't
+speak a documented GATT service — they're HID keyboard or AVRCP devices —
+which means reverse-engineering a report format and adding a pairing step
+to a device that should just work at the trailhead. Momentary pushbuttons
+wired directly to Feather GPIO pins need none of that: no pairing, no
+second BLE central role to maintain, nothing to re-pair after a battery
+change. This is a permanent product decision, not just a testing shortcut
+— **no BLE remote path will be built.**
+
+Three buttons, not one — a single reset button was not enough. Every
+established enduro trip computer (ICO CheckMate is the reference) pairs a
+RESET with two-directional UP/DOWN distance correction, because a
+wheel-revolution odometer drifts from the course's measured distance
+(tire wear, wheel spin, course-measurement error) and the rider needs a
+live correction against painted mile markers — without it, distance-driven
+key time and deviation silently drift off from the route sheet over a
+section. This is load-bearing functionality, not a nice-to-have: the unit
+does not work on an actual course without it.
+
+Implemented in `firmware/enduro-feather/enduro-feather.ino`:
+- `RESET_BUTTON_PIN` (pin 6) fires the same effect as the `MANUAL_RESET`
+  control command (0x03), matching the phone's RESET button — zeroes
+  displayed deviation only.
+- `UP_BUTTON_PIN` / `DOWN_BUTTON_PIN` (pins 9/10) nudge `cumulativeMi`
+  directly by `ADJUST_STEP_MI` (0.01 mi) per tap, auto-repeating on hold —
+  the Autocal equivalent. Device-only, and permanently so: the phone has no
+  ride surface to correct.
+
+All three debounced with a shared helper in `loop()`. Wiring in
+`docs/HARDWARE.md`.
+
+<details>
+<summary>Original BLE-remote plan (superseded, kept for history)</summary>
+
+Decision: Priority 2 item on phone, primary input on ESP32.
 
 Rationale: the phone live-screen is a demo. Getting through one real ride using the touch RESET button is acceptable for validation purposes. However, there is a real risk in validating a touch-driven live screen for too long — you end up optimizing a UI model that gets thrown away when the ESP32 takes over.
 
 Mitigation: keep touch interaction minimal and functional (it already is). Do not add gesture refinements or multi-tap shortcuts to the phone live-screen. When the remote lands, it lands as a second `BleManager` connection (separate device) that fires the same store actions (`manualReset`, future `incrementMileage`, `markCheck`). The phone remote implementation is a direct preview of the ESP32 input handler.
 
 Target remote for first validation: the BT shutter / media remote family (AB Shutter 3, Satechi) that the CheckPoint Two community has already validated. These present as HID keyboard or AVRCP and don't speak a documented GATT service — scan by device name pattern or require manual pairing. Document which one ships first.
+
+</details>
 
 ---
 
@@ -105,18 +150,17 @@ Target remote for first validation: the BT shutter / media remote family (AB Shu
 
 ---
 
-### Priority 4b — iOS BLE backgrounding (field test, device required)
+### Priority 4b — iOS BLE backgrounding ✅ MOOT (August 2026)
 
-`react-native-ble-plx` uses Core Bluetooth's `bluetooth-central` background mode. When the app goes to background, Core Bluetooth continues delivering notifications but with coalesced timing — batched with stale timestamps rather than real-time. If iOS suspends the JS runtime, the reconnect logic in `ble-manager.ts` may not execute on schedule.
+Closed by deletion, not by testing. This asked whether Core Bluetooth would
+keep delivering CSC notifications to a backgrounded phone at a usable rate.
+The phone no longer connects to the speed sensor at all — the device does,
+and it is an always-on dedicated unit with no OS to suspend it. The failure
+mode this priority existed to guard against cannot happen any more.
 
-This is not a Phase 2 discovery item. It directly affects whether the phone app is trustworthy in a race scenario and needs to be tested on real hardware before riding:
-
-- Add `bluetooth-central` background mode to `app.json` / `Info.plist`
-- Test: connect sensor, lock phone, ride for 5 minutes, disconnect and reconnect sensor mid-ride — confirm SENSOR LOST fires and reconnect completes without the app in foreground
-- Test: lock phone in a pocket, confirm `raw_csc_log` entries accumulate at the expected ~1 Hz rate (not coalesced into large gaps)
-- If coalescing is a problem, the fix is to use `wall_clock_ms` at receipt for elapsed-time calculation rather than BLE event timestamps — but measure first, don't assume
-
-These are separate tasks from 4a. 4a can be closed with a unit test. 4b can only be closed with a field test. Bundling them tends to mean 4b gets deferred under cover of 4a being done.
+The `bluetooth-central` background mode stays in `app.json`: the phone still
+talks to the handlebar unit over BLE, and a route push or log pull should
+survive the screen locking.
 
 ---
 
@@ -168,18 +212,17 @@ Goal: a working app you can ride with that produces trustworthy numbers and a ra
 - [x] **Replay harness (`src/engine/replay.ts`) + snapshot test** ← Priority 1
 - [x] **Speed sanity clamp in CSC parser (power-cycle vs. rollover)** ← Priority 2
 - [x] **Auto-reset: boundary-crossing detector** ← Priority 4a (unit test, no device)
-- [ ] **iOS BLE backgrounding — prototype and field test** ← Priority 4b (device required)
-- [ ] EAS build, TestFlight, ride with it
+- [x] ~~iOS BLE backgrounding — prototype and field test~~ ← Priority 4b, moot: the phone no longer connects to the speed sensor
+- [x] ~~EAS build, TestFlight, ride with it~~ — superseded: the device is the ride surface, validated by log pull + replay rather than by riding the phone
 
 ### Phase 2 — Phone companion solidified
 
-- [ ] Handlebar BLE remote (HID/AVRCP, primary input path proven)
 - [ ] Route sharing (search, publish, AirDrop local share)
 - [ ] CSV route import
 - [ ] Audio cues to Bluetooth speakers
 - [ ] Keep-awake + screen brightness management
 - [ ] Transfer section time allowances (vs. fully free)
-- [ ] Free-territory UI: zone overlay in route builder, live "check possible" state on live screen (`free-territory.ts` is built and fully tested — no UI surface yet)
+- [ ] Free-territory UI: zone overlay in route builder, and a "check possible" state on the device panel (`free-territory.ts` is built and fully tested — no UI surface yet)
 
 ### Phase 3 — Device bring-up (Feather nRF52840)
 
@@ -191,8 +234,10 @@ Goal: a working app you can ride with that produces trustworthy numbers and a ra
 - [x] Phone companion BLE connection to the device (`src/ble/device-manager.ts`, DeviceScreen)
 - [x] Route push (phone → device)
 - [x] Ride log pull (device → phone) → raw_csc_log → replay validation path
+- [x] Hardwired RESET/UP/DOWN buttons (Priority 3 — no BLE remote, see above)
 - [ ] Board bring-up on the physical hardware (flash, wire, run the `docs/HARDWARE.md` checklist) ← **you are here**
 - [ ] Field cross-validation: ride, pull the log, compare live-displayed deviation to phone replay
+- [x] Row start countdown: phone arms key time + row, device counts down and starts the ride clock on the official minute (CONTROL 0x07, ride_state 3). RESET at the line re-anchors for clock drift
 - [ ] Sharp Memory LCD draw spec round 2: per-check DQ states with max_late_seconds, time-format polish (current renderer is functional)
 - [ ] Ride log to QSPI flash (survives power-off; RAM-only today, ~2 h at 1 Hz)
 
@@ -208,7 +253,7 @@ Goal: a working app you can ride with that produces trustworthy numbers and a ra
 
 ## Open questions (first-class, not deferred)
 
-1. **Which BLE remote ships first.** AB Shutter 3 is cheap and documented; get one in hand and characterize its GATT profile before writing the remote handler. The HID vs. AVRCP distinction changes the connection approach significantly.
+1. ~~**Which BLE remote ships first.**~~ **Resolved:** no BLE remote — hardwired RESET/UP/DOWN GPIO buttons instead. See Priority 3.
 
 2. **iOS backgrounding behavior.** Prototype this before riding with the app. See Priority 4 above.
 

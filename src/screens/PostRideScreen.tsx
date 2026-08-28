@@ -84,7 +84,7 @@ export function PostRideScreen({ navigation, route }: Props) {
             <Polyline
               points={points}
               fill="none"
-              stroke="#f0a500"
+              stroke="#FF6600"
               strokeWidth={2}
             />
             {/* Y axis labels */}
@@ -112,7 +112,7 @@ export function PostRideScreen({ navigation, route }: Props) {
           <StatBox label="On Time" value={`${pctOnTime}%`} color="#2ecc71" />
           <StatBox label="Worst Late" value={`+${Math.round(maxLate)}s`} color="#e74c3c" />
           <StatBox label="Worst Early" value={`${Math.round(maxEarly)}s`} color="#3498db" />
-          <StatBox label="Total Distance" value={`${maxDist.toFixed(2)} mi`} color="#f0a500" />
+          <StatBox label="Total Distance" value={`${maxDist.toFixed(2)} mi`} color="#FF6600" />
         </View>
       </ScrollView>
 
@@ -132,7 +132,7 @@ function StatBox({ label, value, color }: { label: string; value: string; color:
   );
 }
 
-const C = { bg: '#0f0f0f', card: '#1a1a1a', text: '#fff', muted: '#888', accent: '#f0a500' };
+const C = { bg: '#0f0f0f', card: '#1a1a1a', text: '#fff', muted: '#888', accent: '#FF6600' };
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },

@@ -43,7 +43,58 @@ using namespace Adafruit_LittleFS_Namespace;
 #define DISPLAY_W 400
 #define DISPLAY_H 240
 
+// Adafruit_SharpMem doesn't define these — the library's own examples expect
+// the sketch to. Monochrome panel: 0 = black pixel, 1 = white.
+#define BLACK 0
+#define WHITE 1
+
 Adafruit_SharpMem display(&SPI, SHARP_CS_PIN, DISPLAY_W, DISPLAY_H);
+
+// ---------------------------------------------------------------------------
+// Hardwired buttons — momentary, active-low via internal pull-up. No BLE
+// remote (HID/AVRCP shutter-style devices don't speak a documented GATT
+// service and add a pairing step to a device that should just work at the
+// trailhead). Wiring: docs/HARDWARE.md.
+//
+// RESET zeroes displayed deviation — parity with the phone's MANUAL_RESET.
+//
+// UP/DOWN nudge cumulative distance against a known course mile marker.
+// A wheel-revolution odometer drifts from the course's measured distance
+// over a section — tire wear, wheel spin in mud/sand, course-measurement
+// error — and that drift is real-world physical reality, not a bug to fix
+// in software. Every enduro trip computer (ICO CheckMate's Autocal is the
+// reference) gives the rider a live, two-directional correction against
+// painted mile markers. Without it the unit is unusable on an actual
+// course: distance-driven key time and deviation would silently drift off
+// from what the route sheet expects. Tap = fine step; hold = repeat, for
+// correcting larger drift without a hundred taps.
+
+#define RESET_BUTTON_PIN 6
+#define UP_BUTTON_PIN 9
+#define DOWN_BUTTON_PIN 10
+#define BUTTON_DEBOUNCE_MS 50
+#define ADJUST_STEP_MI 0.01
+#define ADJUST_HOLD_DELAY_MS 600
+#define ADJUST_REPEAT_MS 150
+
+// Defined here, not below with pollButton(): the Arduino preprocessor
+// auto-generates prototypes for every function and injects them near the top
+// of the file, so any type used in a signature must be declared up here or
+// the generated prototype won't compile.
+struct DebouncedButton {
+  uint8_t pin;
+  bool lastReading = HIGH;
+  bool debouncedState = HIGH;
+  uint32_t lastChangeMs = 0;
+  uint32_t pressStartMs = 0;
+  uint32_t lastRepeatMs = 0;
+
+  explicit DebouncedButton(uint8_t p) : pin(p) {}
+};
+
+static DebouncedButton resetButton(RESET_BUTTON_PIN);
+static DebouncedButton upButton(UP_BUTTON_PIN);
+static DebouncedButton downButton(DOWN_BUTTON_PIN);
 
 // ---------------------------------------------------------------------------
 // Enduro GATT service (UUIDs from docs/BLE-PROTOCOL.md, little-endian bytes)
@@ -88,6 +139,20 @@ static uint32_t rideEpochS = 0;  // phone-provided wall clock at START_RIDE
 static double wheelCircumferenceMm = CSC_DEFAULT_WHEEL_CIRCUMFERENCE_MM;
 static volatile uint8_t sensorStatus = RS_SENSOR_DISCONNECTED;
 static uint32_t resetFlashUntilMs = 0;
+
+// Row start / countdown. The device has no RTC: SET_START_TIME hands it the
+// phone's wall clock, which anchors millis() to epoch for as long as it stays
+// powered. rideStartMs is the millis() value at which the ride clock starts —
+// it sits in the future while counting down.
+static uint32_t epochAtSyncS = 0;
+static uint32_t millisAtSync = 0;
+static bool clockSynced = false;
+static uint32_t riderStartEpochS = 0;
+static uint8_t riderRow = 0;
+
+// Window after the scheduled start in which RESET still means "the official
+// just said go" (re-anchor the start) rather than "I hit a check" (flash only).
+#define RESET_START_WINDOW_MS 60000
 
 // Ride log: RAM buffer, ~2 h at 1 Hz. 10 bytes/row on the wire, 12 in RAM.
 #define RIDE_LOG_CAPACITY 7200
@@ -147,7 +212,11 @@ static void loadPersistedRoute() {
   if (len > 0 && len <= XFER_MAX) {
     static uint8_t buf[XFER_MAX];
     f.read(buf, len);
-    rs_route_t decoded;
+    // static, not a local: rs_route_t is ~3.6 KB (64 segments) and the
+    // Arduino loop task only gets a 4 KB stack (LOOP_STACK_SZ in the nRF52
+    // core), so a local here overflows the stack and hard-faults. Safe as a
+    // static because this runs once, from setup(), before BLE starts.
+    static rs_route_t decoded;
     if (rs_decode_route_sheet(buf, len, &decoded) == RS_OK) {
       adoptRoute(&decoded);
     }
@@ -160,6 +229,42 @@ static void loadPersistedRoute() {
 // the last known distance so the hero number keeps ticking between wheel
 // notifications — identical to the phone's value at every notification
 // timestamp, which is what the replay cross-validation compares.
+
+static uint32_t currentEpochS() {
+  if (!clockSynced) return 0;
+  return epochAtSyncS + (millis() - millisAtSync) / 1000;
+}
+
+// Seconds remaining until the scheduled row start; 0 once it has passed.
+static int32_t countdownSeconds() {
+  int32_t remainMs = (int32_t)(rideStartMs - millis());
+  return remainMs > 0 ? (remainMs + 999) / 1000 : 0;
+}
+
+// Shared by the CONTROL opcode and the hardwired button. During the countdown
+// (or just after the scheduled start) this anchors the ride to the actual go
+// signal, absorbing drift between the device clock and the official one, and
+// zeroes distance and the log because the ride truly starts here. Later in the
+// ride it is an AMA reset checkpoint: flash only, no re-anchoring.
+static void triggerReset() {
+  uint32_t now = millis();
+  bool atStart = (rideState == RS_RIDE_COUNTDOWN) ||
+                 (rideState == RS_RIDE_RIDING && (int32_t)(now - rideStartMs) >= 0 &&
+                  (now - rideStartMs) <= RESET_START_WINDOW_MS);
+
+  if (atStart) {
+    rideStartMs = now;
+    rideEpochS = currentEpochS();
+    cumulativeMi = 0.0;
+    currentSpeedMph = 0.0;
+    segmentIndex = 0;
+    cscHasState = false;
+    rideLogCount = 0;
+    rideLogOverflowed = false;
+    rideState = RS_RIDE_RIDING;
+  }
+  resetFlashUntilMs = now + 3000;
+}
 
 static double currentDeviationSeconds() {
   if (rideState != RS_RIDE_RIDING || !routeLoaded) return 0.0;
@@ -216,9 +321,63 @@ static void cscNotifyCallback(BLEClientCharacteristic *chr, uint8_t *data,
   segmentIndex = pos.segment_index;
 }
 
+// Every distinct address is logged once with its name, so the serial output
+// is a readable inventory of what is on the air rather than a flood. Plenty of
+// CSC sensors never advertise 0x1816 at all — they advertise a name only, and
+// you learn what they speak after connecting — so the inventory is how we find
+// out what this sensor actually looks like.
+#define SCAN_LOG_MAX 64
+static uint8_t scanSeenAddrs[SCAN_LOG_MAX][6];
+static uint8_t scanSeenCount = 0;
+
+// Returns true the first time an address is seen. Once the table is full it
+// can no longer remember new addresses, so it reports every sighting as new —
+// callers must not let that turn into a flood (see scanCallback).
+static bool scanFirstSighting(const uint8_t *addr) {
+  for (uint8_t i = 0; i < scanSeenCount; i++) {
+    if (memcmp(scanSeenAddrs[i], addr, 6) == 0) return false;
+  }
+  if (scanSeenCount < SCAN_LOG_MAX) {
+    memcpy(scanSeenAddrs[scanSeenCount++], addr, 6);
+    return true;
+  }
+  return true;  // table full: caller filters
+}
+
 static void scanCallback(ble_gap_evt_adv_report_t *report) {
-  // Scanner is filtered on the CSC service UUID — connect to the first hit.
-  Bluefruit.Central.connect(report);
+  const uint8_t *a = report->peer_addr.addr;
+  bool hasCsc = Bluefruit.Scanner.checkReportForUuid(report, cscService.uuid);
+
+  if (scanFirstSighting(a)) {
+    char name[32] = {0};
+    if (Bluefruit.Scanner.parseReportByType(
+            report, BLE_GAP_AD_TYPE_COMPLETE_LOCAL_NAME,
+            (uint8_t *)name, sizeof(name) - 1) == 0) {
+      Bluefruit.Scanner.parseReportByType(
+          report, BLE_GAP_AD_TYPE_SHORT_LOCAL_NAME,
+          (uint8_t *)name, sizeof(name) - 1);
+    }
+    // Once the address table is full every advert reads as new, and a dense
+    // BLE environment would bury the interesting line. Anonymous unnamed
+    // devices are phones and beacons; a speed sensor has a name or announces
+    // 0x1816, so past that point only those are worth printing.
+    bool interesting = hasCsc || name[0] != '\0';
+    if (scanSeenCount < SCAN_LOG_MAX || interesting) {
+      Serial.printf("[scan] %02X:%02X:%02X:%02X:%02X:%02X rssi=%4d csc=%s name='%s'\n",
+                    a[5], a[4], a[3], a[2], a[1], a[0], report->rssi,
+                    hasCsc ? "YES" : "no ", name);
+    }
+  }
+
+  if (hasCsc) {
+    Serial.println("[scan] -> connecting");
+    Bluefruit.Central.connect(report);
+    return;  // no resume(): connecting takes over from scanning
+  }
+
+  // SoftDevice pauses the scanner to deliver each report; without this it
+  // stops after the first device that isn't ours.
+  Bluefruit.Scanner.resume();
 }
 
 static void centralConnectCallback(uint16_t connHandle) {
@@ -226,7 +385,9 @@ static void centralConnectCallback(uint16_t connHandle) {
   if (cscService.discover(connHandle) && cscMeasurement.discover()) {
     cscMeasurement.enableNotify();
     sensorStatus = RS_SENSOR_CONNECTED;
+    Serial.println("[csc] connected, notifications enabled");
   } else {
+    Serial.println("[csc] service/characteristic discovery FAILED, dropping");
     Bluefruit.disconnect(connHandle);
     sensorStatus = RS_SENSOR_DISCONNECTED;
   }
@@ -234,7 +395,9 @@ static void centralConnectCallback(uint16_t connHandle) {
 
 static void centralDisconnectCallback(uint16_t connHandle, uint8_t reason) {
   (void)connHandle;
-  (void)reason;
+  // 0x08 supervision timeout (out of range / battery out), 0x13 remote user
+  // terminated (the sensor went to sleep), 0x3E failed to establish.
+  Serial.printf("[csc] disconnected, reason 0x%02X\n", reason);
   cscHasState = false;  // re-baseline on reconnect, same as the phone manager
   sensorStatus = RS_SENSOR_LOST;
   // Scanner.restartOnDisconnect(true) handles the reconnect scan.
@@ -270,7 +433,10 @@ static void routeSheetWriteCallback(uint16_t connHandle, BLECharacteristic *chr,
     case XFER_END: {
       if (!xferActive) return;
       xferActive = false;
-      rs_route_t decoded;
+      // static for the same reason as in loadPersistedRoute(): ~3.6 KB will
+      // not fit on this callback's stack. Its own static, not shared with the
+      // boot-time one, since this runs on the BLE task.
+      static rs_route_t decoded;
       if (rs_decode_route_sheet(xferBuf, xferExpected, &decoded) == RS_OK) {
         adoptRoute(&decoded);
         routePersistLen = xferExpected;
@@ -308,7 +474,7 @@ static void controlWriteCallback(uint16_t connHandle, BLECharacteristic *chr,
       }
       break;
     case 0x03:  // MANUAL_RESET — parity with the phone: momentary zero
-      resetFlashUntilMs = millis() + 3000;
+      triggerReset();
       break;
     case 0x04:  // SET_WHEEL_CIRC [mm u16]
       if (len >= 3) {
@@ -318,6 +484,32 @@ static void controlWriteCallback(uint16_t connHandle, BLECharacteristic *chr,
       break;
     case 0x05:  // REQUEST_RIDE_LOG
       logStreamRequested = true;
+      break;
+    case 0x07:  // SET_START_TIME [now_epoch_s u32][key_epoch_s u32][row u8]
+      if (len >= 10) {
+        uint32_t nowEpoch = (uint32_t)data[1] | ((uint32_t)data[2] << 8) |
+                            ((uint32_t)data[3] << 16) | ((uint32_t)data[4] << 24);
+        uint32_t keyEpoch = (uint32_t)data[5] | ((uint32_t)data[6] << 8) |
+                            ((uint32_t)data[7] << 16) | ((uint32_t)data[8] << 24);
+        riderRow = data[9];
+        riderStartEpochS =
+            rs_rider_start_epoch(keyEpoch, riderRow, RS_DEFAULT_ROW_INTERVAL_S);
+        epochAtSyncS = nowEpoch;
+        millisAtSync = millis();
+        clockSynced = true;
+
+        int64_t deltaS = (int64_t)riderStartEpochS - (int64_t)nowEpoch;
+        rideStartMs = (uint32_t)((int64_t)millisAtSync + deltaS * 1000);
+        rideEpochS = riderStartEpochS;
+
+        cumulativeMi = 0.0;
+        currentSpeedMph = 0.0;
+        segmentIndex = 0;
+        cscHasState = false;
+        rideLogCount = 0;
+        rideLogOverflowed = false;
+        rideState = deltaS > 0 ? RS_RIDE_COUNTDOWN : RS_RIDE_RIDING;
+      }
       break;
     case 0x06:  // CLEAR_RIDE_LOG
       rideLogCount = 0;
@@ -446,8 +638,21 @@ static void drawCentered(const char *text, int16_t y, uint8_t size) {
 
 static void render() {
   display.clearDisplayBuffer();
-  display.setTextColor(BLACK);
   display.setTextWrap(false);
+
+  // Colour scheme is decided before anything is drawn: when the rider is early
+  // (ahead of schedule) the whole panel inverts to white-on-black, so the state
+  // reads at a glance on the bars without parsing the sign on the number.
+  // Deliberately not applied to the RESET flash, which stays normal so it can't
+  // be confused with the early state.
+  bool riding = (rideState == RS_RIDE_RIDING) && routeLoaded;
+  bool resetFlash = millis() < resetFlashUntilMs;
+  double dev = riding ? currentDeviationSeconds() : 0.0;
+  long devRounded = lround(dev);
+  bool inverted = riding && !resetFlash && devRounded < 0;
+
+  if (inverted) display.fillScreen(BLACK);
+  display.setTextColor(inverted ? WHITE : BLACK);
 
   char line[48];
 
@@ -474,6 +679,26 @@ static void render() {
     return;
   }
 
+  if (rideState == RS_RIDE_COUNTDOWN) {
+    int32_t remain = countdownSeconds();
+    snprintf(line, sizeof(line), "ROW %u", riderRow);
+    drawCentered(line, 40, 3);
+    // H:MM:SS past an hour — arming well ahead of the start is normal, so the
+    // hour field is not an edge case. Narrower glyphs keep it on the panel.
+    if (remain >= 3600) {
+      snprintf(line, sizeof(line), "%ld:%02ld:%02ld", (long)(remain / 3600),
+               (long)((remain % 3600) / 60), (long)(remain % 60));
+      drawCentered(line, 100, 7);
+    } else {
+      snprintf(line, sizeof(line), "%ld:%02ld", (long)(remain / 60),
+               (long)(remain % 60));
+      drawCentered(line, 88, 11);
+    }
+    drawCentered("TO START", 190, 3);
+    display.refresh();
+    return;
+  }
+
   if (rideState != RS_RIDE_RIDING) {
     drawCentered(rideState == RS_RIDE_LOG_READY ? "LOG READY" : "READY", 90, 5);
     snprintf(line, sizeof(line), "%u segments", route.count);
@@ -490,14 +715,12 @@ static void render() {
   display.setTextSize(2);
   display.print(line);
 
-  // Hero: deviation (or ON TIME / FREE / RESET)
-  bool resetFlash = millis() < resetFlashUntilMs;
+  // Hero: deviation (or ON TIME / FREE / RESET). resetFlash, dev and
+  // devRounded were computed at the top of render() to pick the colour scheme.
   bool inFree = pe_is_in_free_segment(segments, route.count, segmentIndex);
-  double dev = currentDeviationSeconds();
 
   char hero[16];
   formatDeviation(dev, resetFlash, hero, sizeof(hero));
-  long devRounded = lround(dev);
 
   if (!resetFlash && devRounded == 0) {
     drawCentered("ON TIME", 90, 7);
@@ -523,23 +746,129 @@ static void render() {
 }
 
 // ---------------------------------------------------------------------------
+// Hardwired buttons — debounced, with optional press-and-hold auto-repeat
+// for UP/DOWN. RESET fires CONTROL 0x03's effect; UP/DOWN nudge cumulativeMi
+// directly (course mile-marker correction, not a route-sheet reset).
+
+// Returns true on the debounced press edge, and again on each auto-repeat
+// tick while held (if allowRepeat).
+static bool pollButton(DebouncedButton &b, bool allowRepeat) {
+  bool reading = digitalRead(b.pin);
+  uint32_t now = millis();
+  bool fired = false;
+
+  if (reading != b.lastReading) {
+    b.lastChangeMs = now;
+    b.lastReading = reading;
+  }
+
+  if (now - b.lastChangeMs >= BUTTON_DEBOUNCE_MS && reading != b.debouncedState) {
+    b.debouncedState = reading;
+    if (b.debouncedState == LOW) {  // press edge
+      b.pressStartMs = now;
+      b.lastRepeatMs = now;
+      fired = true;
+    }
+  }
+
+  if (allowRepeat && b.debouncedState == LOW &&
+      now - b.pressStartMs >= ADJUST_HOLD_DELAY_MS &&
+      now - b.lastRepeatMs >= ADJUST_REPEAT_MS) {
+    b.lastRepeatMs = now;
+    fired = true;
+  }
+
+  return fired;
+}
+
+static void adjustDistance(double deltaMi) {
+  if (!routeLoaded) return;  // nothing to recompute a segment against
+  cumulativeMi += deltaMi;
+  if (cumulativeMi < 0) cumulativeMi = 0;
+  pe_position_t pos = pe_detect_segment(segments, route.count, cumulativeMi);
+  segmentIndex = pos.segment_index;  // no crossedReset check: a mile-marker
+                                      // correction isn't crossing a route
+                                      // reset checkpoint, so no RESET flash
+}
+
+static void pollButtons() {
+  if (pollButton(resetButton, false)) {
+    triggerReset();
+  }
+  if (pollButton(upButton, true)) {
+    adjustDistance(ADJUST_STEP_MI);
+  }
+  if (pollButton(downButton, true)) {
+    adjustDistance(-ADJUST_STEP_MI);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Boot progress. Each stage is printed to serial AND painted on the panel, so
+// a hang during setup() leaves the last completed stage on screen — the Sharp
+// LCD holds its last image, which makes it a usable debugger when no serial
+// monitor is attached. If the unit ever boots to a "BOOT: ..." screen instead
+// of NO ROUTE/READY, setup() died at the stage after the one shown.
+
+static void bootStage(const char *msg) {
+  Serial.print("[boot] ");
+  Serial.println(msg);
+  display.clearDisplayBuffer();
+  display.setTextColor(BLACK);
+  display.setTextWrap(false);
+  display.setTextSize(2);
+  display.setCursor(4, 4);
+  display.print("BOOT: ");
+  display.print(msg);
+  display.refresh();
+  delay(150);  // long enough for a human to watch the sequence
+}
 
 void setup() {
   Serial.begin(115200);
+  // Bounded wait: give USB serial a moment to enumerate so early prints aren't
+  // lost, but never block forever when running off a battery with no host.
+  uint32_t serialWaitStart = millis();
+  while (!Serial && millis() - serialWaitStart < 2000) {}
 
-  display.begin();
+  // begin() mallocs the 12 KB frame buffer. If that fails it returns false and
+  // every subsequent draw writes through a null pointer — a hard fault with a
+  // blank panel and no clue why. Signal it on the LED instead.
+  if (!display.begin()) {
+    Serial.println("[boot] FATAL: display.begin() failed (frame buffer alloc)");
+    pinMode(LED_BUILTIN, OUTPUT);
+    for (;;) {
+      digitalWrite(LED_BUILTIN, HIGH);
+      delay(100);
+      digitalWrite(LED_BUILTIN, LOW);
+      delay(100);
+    }
+  }
   display.clearDisplay();
+  bootStage("display");
+
+  pinMode(RESET_BUTTON_PIN, INPUT_PULLUP);
+  pinMode(UP_BUTTON_PIN, INPUT_PULLUP);
+  pinMode(DOWN_BUTTON_PIN, INPUT_PULLUP);
+  bootStage("buttons");
 
   InternalFS.begin();
+  bootStage("filesystem");
   loadPersistedRoute();
+  bootStage("route load");
 
-  Bluefruit.begin(1 /* peripheral */, 1 /* central */);
+  if (!Bluefruit.begin(1 /* peripheral */, 1 /* central */)) {
+    Serial.println("[boot] FATAL: Bluefruit.begin() failed");
+    bootStage("BLE FAILED");
+    for (;;) delay(1000);
+  }
   Bluefruit.setTxPower(4);
 
   char name[16];
   snprintf(name, sizeof(name), "Enduro-%04X",
            (unsigned)(NRF_FICR->DEVICEID[0] & 0xFFFF));
   Bluefruit.setName(name);
+  bootStage("bluefruit");
 
   // Peripheral: Enduro service
   enduroService.begin();
@@ -565,11 +894,13 @@ void setup() {
   rideLogChar.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
   rideLogChar.setMaxLen(247);
   rideLogChar.begin();
+  bootStage("gatt");
 
   // Central: CSC client
   cscService.begin();
   cscMeasurement.setNotifyCallback(cscNotifyCallback);
   cscMeasurement.begin();
+  bootStage("csc client");
 
   Bluefruit.Central.setConnectCallback(centralConnectCallback);
   Bluefruit.Central.setDisconnectCallback(centralDisconnectCallback);
@@ -578,10 +909,13 @@ void setup() {
 
   Bluefruit.Scanner.setRxCallback(scanCallback);
   Bluefruit.Scanner.restartOnDisconnect(true);
-  Bluefruit.Scanner.filterUuid(cscService.uuid);
-  Bluefruit.Scanner.useActiveScan(false);
+  // Active scanning so SCAN_RSP payloads are received: plenty of CSC sensors
+  // advertise the 0x1816 UUID only there, and a passive scan never sees it.
+  // The UUID match moved into scanCallback() (see there).
+  Bluefruit.Scanner.useActiveScan(true);
   Bluefruit.Scanner.setInterval(160, 80);  // 100 ms interval, 50 ms window
   Bluefruit.Scanner.start(0);              // scan forever
+  bootStage("scanner");
 
   // Advertise to the phone
   Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
@@ -592,14 +926,37 @@ void setup() {
   Bluefruit.Advertising.setInterval(32, 244);
   Bluefruit.Advertising.setFastTimeout(30);
   Bluefruit.Advertising.start(0);
+  bootStage("advertising");
 
+  Serial.println("[boot] setup complete");
   render();
 }
 
 void loop() {
   static uint32_t lastRenderMs = 0;
   static uint32_t lastStatusMs = 0;
+  static uint32_t lastHeartbeatMs = 0;
   uint32_t now = millis();
+
+  // Heartbeat: proves loop() is still running when the panel looks frozen.
+  if (now - lastHeartbeatMs >= 2000) {
+    lastHeartbeatMs = now;
+    Serial.print("[loop] up=");
+    Serial.print(now / 1000);
+    Serial.print("s route=");
+    Serial.print(routeLoaded ? "yes" : "no");
+    Serial.print(" mi=");
+    Serial.println(cumulativeMi, 2);
+  }
+
+  pollButtons();
+
+  // Scheduled row start reached: the ride clock begins on its own, so the
+  // deviation is anchored to the official minute whether or not anyone
+  // touches a button. RESET within RESET_START_WINDOW_MS re-anchors it.
+  if (rideState == RS_RIDE_COUNTDOWN && (int32_t)(now - rideStartMs) >= 0) {
+    rideState = RS_RIDE_RIDING;
+  }
 
   if (routePersistPending) {
     routePersistPending = false;

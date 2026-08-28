@@ -5,8 +5,6 @@ import { StatusBar } from 'expo-status-bar';
 import { initSchema } from './src/db/schema';
 import type { RootStackParamList } from './src/screens/types';
 import { RouteLibraryScreen } from './src/screens/RouteLibraryScreen';
-import { PreRideScreen } from './src/screens/PreRideScreen';
-import { LiveRideScreen } from './src/screens/LiveRideScreen';
 import { PostRideScreen } from './src/screens/PostRideScreen';
 import { DeviceScreen } from './src/screens/DeviceScreen';
 
@@ -28,12 +26,6 @@ export default function App() {
         }}
       >
         <Stack.Screen name="RouteLibrary" component={RouteLibraryScreen} />
-        <Stack.Screen name="PreRide" component={PreRideScreen} />
-        <Stack.Screen
-          name="LiveRide"
-          component={LiveRideScreen}
-          options={{ gestureEnabled: false }}
-        />
         <Stack.Screen name="PostRide" component={PostRideScreen} />
         <Stack.Screen name="Device" component={DeviceScreen} />
       </Stack.Navigator>

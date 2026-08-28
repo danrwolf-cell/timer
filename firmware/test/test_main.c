@@ -300,6 +300,15 @@ static void run_protocol_vectors(void) {
   check_i64("ride_log", 1, "small_len", 2 + RS_LOG_ROW_BYTES, (int64_t)small_len);
 }
 
+static void run_row_start_vectors(void) {
+  for (size_t i = 0; i < row_start_vector_count; i++) {
+    const row_start_vector_t *v = &row_start_vectors[i];
+    uint32_t got = rs_rider_start_epoch(v->key_time_epoch_s, v->row,
+                                        v->row_interval_s);
+    check_i64("row_start", (int)i, "epoch", (int64_t)v->expected, (int64_t)got);
+  }
+}
+
 int main(void) {
   run_csc_vectors("csc_sequence", csc_sequence_vectors, csc_sequence_count);
   run_csc_vectors("csc_direct", csc_direct_vectors, csc_direct_count);
@@ -310,6 +319,7 @@ int main(void) {
              replay_power_cycle_row_count, replay_power_cycle_points,
              replay_power_cycle_point_count);
   run_protocol_vectors();
+  run_row_start_vectors();
 
   if (failures) {
     fprintf(stderr, "\n%d/%d checks FAILED\n", failures, checks);

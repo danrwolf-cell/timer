@@ -47,6 +47,55 @@ interface RouteRulesRow {
 }
 
 /** Read free-territory rule params for a route, falling back to AMA defaults per-column. */
+export interface RouteStartConfig {
+  /** Key time as it reads on the EVENT clock, resolved to an epoch. */
+  keyTimeEpochMs: number | null;
+  riderRow: number | null;
+  /** Signed ms the event clock reads ahead of this phone. */
+  clockOffsetMs: number;
+}
+
+interface RouteStartRow {
+  key_time_epoch_ms: number | null;
+  rider_row: number | null;
+  clock_offset_ms: number | null;
+}
+
+/** Event key time + row for a route. Both null until the rider sets them. */
+export function getRouteStartConfig(routeId: number): RouteStartConfig {
+  const row = getDb().getFirstSync(
+    'SELECT key_time_epoch_ms, rider_row, clock_offset_ms FROM routes WHERE id = ?',
+    routeId
+  ) as RouteStartRow | null;
+  if (!row) return { keyTimeEpochMs: null, riderRow: null, clockOffsetMs: 0 };
+  return {
+    keyTimeEpochMs: row.key_time_epoch_ms,
+    riderRow: row.rider_row,
+    clockOffsetMs: row.clock_offset_ms ?? 0,
+  };
+}
+
+export function setRouteStartConfig(
+  routeId: number,
+  keyTimeEpochMs: number | null,
+  riderRow: number | null
+): void {
+  getDb().runSync(
+    'UPDATE routes SET key_time_epoch_ms = ?, rider_row = ? WHERE id = ?',
+    keyTimeEpochMs,
+    riderRow,
+    routeId
+  );
+}
+
+export function setRouteClockOffset(routeId: number, clockOffsetMs: number): void {
+  getDb().runSync(
+    'UPDATE routes SET clock_offset_ms = ? WHERE id = ?',
+    Math.round(clockOffsetMs),
+    routeId
+  );
+}
+
 export function getRouteRules(routeId: number): FtRules {
   const row = getDb().getFirstSync(
     'SELECT has_secret_checks, ft_miles_after_check, ft_miles_before_gas, ft_miles_after_gas, ft_calibration_mile FROM routes WHERE id = ?',

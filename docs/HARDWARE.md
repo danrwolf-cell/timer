@@ -23,6 +23,21 @@ VCOM, which the Adafruit_SharpMem library toggles on every refresh.
 | DI | MO | SPI data |
 | CS | 5 | Chip select (`SHARP_CS_PIN` in the sketch) |
 
+Plus three buttons (two wires each, no resistor needed — each button's
+other leg goes to a shared GND):
+
+| Button | Feather nRF52840 | Purpose |
+|---|---|---|
+| RESET | 6 | Momentary, active-low (`RESET_BUTTON_PIN`). Zeroes displayed deviation. |
+| UP | 9 | Momentary, active-low (`UP_BUTTON_PIN`). Nudges distance up — course mile-marker correction. |
+| DOWN | 10 | Momentary, active-low (`DOWN_BUTTON_PIN`). Nudges distance down. |
+
+All three read through the Feather's internal pull-ups (`INPUT_PULLUP` in
+the sketch) — no external resistors. Any momentary normally-open pushbutton
+works for breadboard testing. For a handlebar-mounted unit, use sealed 12mm
+waterproof momentary pushbuttons (panel-mount, IP65) instead — same two
+legs each, same wiring. Buy three.
+
 Notes:
 
 - The Feather nRF52840 Express silkscreens its digital pins as bare numbers
@@ -56,6 +71,9 @@ reset button to enter the UF2 bootloader.
    header changes to `SENSOR OK` without any pairing step.
 4. **Ride**: START RIDE from the phone. Spin the wheel — distance and the
    hero deviation number move. Cross a reset boundary to see the RESET flash.
+   Press the hardwired RESET button — same RESET flash, no phone involved.
+   Press UP/DOWN and confirm the distance footer nudges by 0.01 mi per tap
+   (hold either to confirm it auto-repeats after ~0.6 s).
 5. **Cross-validation** (the point of the prototype): END RIDE, then PULL
    RIDE LOG. The phone replays the raw log through the TypeScript engine
    and shows the deviation chart. The numbers the panel displayed live and
@@ -68,7 +86,8 @@ reset button to enter the UF2 bootloader.
 ## Known prototype limits
 
 - Ride log is RAM-only (~2 h at 1 Hz): pull it before powering off.
-- No buttons on the unit yet — the phone is the remote. The handlebar
-  remote (Priority 3) arrives as a second central connection later.
+- Three hardwired buttons: RESET (manual zero, same as `MANUAL_RESET` from
+  the phone), UP/DOWN (distance nudge for course mile-marker correction).
+  No other on-unit controls yet.
 - The panel is unmounted bare electronics: keep it dry; enclosure is
   Phase 4.
