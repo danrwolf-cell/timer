@@ -73,15 +73,15 @@ export function ScanReviewScreen({ navigation, route }: Props) {
       setElapsed(Math.floor((Date.now() - startedAtRef.current) / 1000));
     }, 350);
     (async () => {
-      const apiKey = await getApiKey();
-      if (!apiKey) {
-        if (!cancelled) {
-          setScanning(false);
-          setError('No API key set — add your Anthropic API key in Settings to scan route sheets.');
-        }
-        return;
-      }
       try {
+        const apiKey = await getApiKey();
+        if (!apiKey) {
+          if (!cancelled) {
+            setScanning(false);
+            setError('No API key set — add your Anthropic API key in Settings to scan route sheets.');
+          }
+          return;
+        }
         const scan = await prepareForScan(uri, mimeType);
         const dataBase64 = await new File(scan.uri).base64();
         const response = await extractRouteSheetDirect(apiKey, scan.mimeType, dataBase64, p => {
@@ -94,9 +94,14 @@ export function ScanReviewScreen({ navigation, route }: Props) {
         if (!response.ok) setError(response.error);
         else setResult(response);
       } catch (e) {
-        if (cancelled) return;
-        setScanning(false);
-        setError(e instanceof Error ? e.message : 'Could not read the file.');
+        if (!cancelled) {
+          setScanning(false);
+          setError(e instanceof Error ? e.message : 'Could not read the file.');
+        }
+      } finally {
+        // Scan is done one way or another — stop ticking elapsed/progress
+        // state nobody's looking at anymore. (Unmount still clears it too.)
+        clearInterval(flusher);
       }
     })();
     return () => {
