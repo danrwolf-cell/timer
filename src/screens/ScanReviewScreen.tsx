@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, ActivityIndicator,
 } from 'react-native';
-import * as FileSystem from 'expo-file-system';
+import { File } from 'expo-file-system';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RouteProp } from '@react-navigation/native';
 import type { RootStackParamList } from './types';
@@ -39,9 +39,7 @@ export function ScanReviewScreen({ navigation, route }: Props) {
         return;
       }
       try {
-        const dataBase64 = await FileSystem.readAsStringAsync(uri, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
+        const dataBase64 = await new File(uri).base64();
         const response = await extractRouteSheetDirect(apiKey, mimeType, dataBase64);
         if (cancelled) return;
         setScanning(false);
