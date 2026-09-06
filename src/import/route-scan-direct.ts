@@ -122,9 +122,15 @@ export async function extractRouteSheetDirect(
       body: JSON.stringify({
         model: 'claude-sonnet-5',
         max_tokens: 16000,
+        // This is a single-shot transcription task, not open-ended reasoning,
+        // and checkKeyTimes() below independently re-validates every
+        // extracted checkpoint — that safety net is what makes it safe to
+        // run at a lower effort than the 'high' default. Adaptive thinking
+        // stays on; only the effort (thinking depth + token spend) is cut.
+        // Drop further to 'low' if 'medium' holds up in your own testing.
         thinking: { type: 'adaptive' },
         output_config: {
-          effort: 'high',
+          effort: 'medium',
           format: { type: 'json_schema', schema: EXTRACTED_ROUTE_SHEET_JSON_SCHEMA },
         },
         messages: [
