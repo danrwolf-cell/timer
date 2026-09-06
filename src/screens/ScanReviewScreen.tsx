@@ -1,13 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, ActivityIndicator,
 } from 'react-native';
 import { File } from 'expo-file-system';
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RouteProp } from '@react-navigation/native';
 import type { RootStackParamList } from './types';
 import { getApiKey } from '../import/api-key-store';
-import { extractRouteSheetDirect } from '../import/route-scan-direct';
+import { extractRouteSheetDirect, type ScanProgress } from '../import/route-scan-direct';
 import { importRouteSheet } from '../import/import-route';
 import type { RouteSheetData, CheckpointResult } from '../import/route-sheet';
 
@@ -26,9 +27,22 @@ export function ScanReviewScreen({ navigation, route }: Props) {
   const [scanning, setScanning] = useState(true);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Progress streams in fast; buffer it in refs and flush to state on an
+  // interval so we don't re-render on every delta.
+  const progressRef = useRef<{ stage: ScanProgress['stage']; thinking: string; outputChars: number }>({
+    stage: 'uploading', thinking: '', outputChars: 0,
+  });
+  const startedAtRef = useRef(Date.now());
+  const [progress, setProgress] = useState(progressRef.current);
+  const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
+    const flusher = setInterval(() => {
+      if (cancelled) return;
+      setProgress({ ...progressRef.current });
+      setElapsed(Math.floor((Date.now() - startedAtRef.current) / 1000));
+    }, 350);
     (async () => {
       const apiKey = await getApiKey();
       if (!apiKey) {
@@ -39,8 +53,31 @@ export function ScanReviewScreen({ navigation, route }: Props) {
         return;
       }
       try {
-        const dataBase64 = await new File(uri).base64();
-        const response = await extractRouteSheetDirect(apiKey, mimeType, dataBase64);
+        // Full-resolution photos are several MB — past Anthropic's image cap
+        // and painfully slow to upload from a phone. Downscale images to a
+        // width that still reads fine; PDFs go through untouched.
+        let sendMime = mimeType;
+        let dataBase64: string;
+        if (mimeType === 'application/pdf') {
+          dataBase64 = await new File(uri).base64();
+        } else {
+          const rendered = await ImageManipulator.manipulate(uri)
+            .resize({ width: 1600 })
+            .renderAsync();
+          const result = await rendered.saveAsync({
+            compress: 0.7,
+            format: SaveFormat.JPEG,
+            base64: true,
+          });
+          if (!result.base64) throw new Error('Could not encode the image.');
+          dataBase64 = result.base64;
+          sendMime = 'image/jpeg';
+        }
+        const response = await extractRouteSheetDirect(apiKey, sendMime, dataBase64, p => {
+          progressRef.current.stage = p.stage;
+          if (p.stage === 'thinking') progressRef.current.thinking += p.fragment;
+          if (p.stage === 'writing') progressRef.current.outputChars = p.totalChars;
+        });
         if (cancelled) return;
         setScanning(false);
         if (!response.ok) setError(response.error);
@@ -51,7 +88,10 @@ export function ScanReviewScreen({ navigation, route }: Props) {
         setError(e instanceof Error ? e.message : 'Could not read the file.');
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      clearInterval(flusher);
+    };
   }, [uri, mimeType]);
 
   function saveRoute() {
@@ -79,8 +119,25 @@ export function ScanReviewScreen({ navigation, route }: Props) {
 
         {scanning && (
           <View style={styles.card}>
-            <ActivityIndicator color="#FF6600" size="large" />
-            <Text style={styles.scanningText}>Scanning {label}…</Text>
+            <View style={styles.scanningHeader}>
+              <ActivityIndicator color="#FF6600" />
+              <Text style={styles.scanningText}>
+                {progress.stage === 'uploading' && `Uploading ${label}…`}
+                {progress.stage === 'waiting' && 'Uploaded. Waiting for Claude…'}
+                {progress.stage === 'thinking' && 'Claude is reading the sheet…'}
+                {progress.stage === 'writing' && 'Transcribing the route sheet…'}
+              </Text>
+              <Text style={styles.elapsedText}>{elapsed}s</Text>
+            </View>
+            {progress.stage === 'writing' && (
+              <Text style={styles.thinkingText}>{progress.outputChars} characters so far</Text>
+            )}
+            {progress.thinking.length > 0 && progress.stage !== 'writing' && (
+              <Text style={styles.thinkingText}>
+                {/* tail only — the interesting part is what it's doing now */}
+                {progress.thinking.length > 600 ? '…' + progress.thinking.slice(-600) : progress.thinking}
+              </Text>
+            )}
           </View>
         )}
 
@@ -155,7 +212,13 @@ const styles = StyleSheet.create({
   content: { padding: 24, paddingTop: 60, paddingBottom: 60 },
   title: { color: C.text, fontSize: 28, fontWeight: '800', marginBottom: 24 },
   card: { backgroundColor: C.card, borderRadius: 14, padding: 20, marginTop: 4 },
-  scanningText: { color: C.muted, fontSize: 15, textAlign: 'center', marginTop: 16 },
+  scanningHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  scanningText: { color: C.text, fontSize: 15, fontWeight: '600', flex: 1 },
+  elapsedText: { color: C.muted, fontSize: 13, fontVariant: ['tabular-nums'] },
+  thinkingText: {
+    color: C.muted, fontSize: 12, lineHeight: 17, marginTop: 14,
+    fontStyle: 'italic',
+  },
   cardTitle: { color: C.accent, fontSize: 18, fontWeight: '700', marginBottom: 8 },
   cardBody: { color: C.text, fontSize: 15, marginBottom: 16 },
   sectionLabel: { color: C.muted, fontSize: 13, letterSpacing: 1, marginTop: 12, marginBottom: 8 },

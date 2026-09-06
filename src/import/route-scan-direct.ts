@@ -16,6 +16,7 @@
 // Same extraction + check pipeline as server/src/index.ts either way: the
 // model transcribes, checkKeyTimes() is the judge.
 
+import { fetch as streamingFetch } from 'expo/fetch';
 import { z } from 'zod/v4';
 import { ExtractedRouteSheetSchema } from './route-scan-schema';
 import { EXTRACTION_PROMPT } from './route-scan-prompt';
@@ -92,15 +93,18 @@ const EXTRACTED_ROUTE_SHEET_JSON_SCHEMA = {
   required: ['routeName', 'eventDate', 'startClockTime', 'segments', 'freeZones', 'checkpoints'],
 } as const;
 
-interface AnthropicMessageResponse {
-  content: Array<{ type: string; text?: string }>;
-  stop_reason: string;
-}
+/** Live progress for the scan UI: what the API call is doing right now. */
+export type ScanProgress =
+  | { stage: 'uploading' }
+  | { stage: 'waiting' }
+  | { stage: 'thinking'; fragment: string }
+  | { stage: 'writing'; totalChars: number };
 
 export async function extractRouteSheetDirect(
   apiKey: string,
   mimeType: ScanMimeType,
-  dataBase64: string
+  dataBase64: string,
+  onProgress?: (progress: ScanProgress) => void
 ): Promise<ExtractResponse> {
   if (!apiKey.trim()) {
     return { ok: false, error: 'No API key set. Add one in Settings.' };
@@ -111,9 +115,17 @@ export async function extractRouteSheetDirect(
       ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: dataBase64 } }
       : { type: 'image', source: { type: 'base64', media_type: mimeType, data: dataBase64 } };
 
+  // Backstop so a stalled upload or response can't spin the UI forever.
+  const abort = new AbortController();
+  const timeout = setTimeout(() => abort.abort(), 180_000);
+
   try {
-    const res = await fetch(ANTHROPIC_API_URL, {
+    // Streamed via expo/fetch (RN's built-in fetch can't read response bodies
+    // incrementally) so thinking deltas can drive live progress UI.
+    onProgress?.({ stage: 'uploading' });
+    const res = await streamingFetch(ANTHROPIC_API_URL, {
       method: 'POST',
+      signal: abort.signal,
       headers: {
         'content-type': 'application/json',
         'x-api-key': apiKey.trim(),
@@ -121,7 +133,11 @@ export async function extractRouteSheetDirect(
       },
       body: JSON.stringify({
         model: 'claude-sonnet-5',
-        max_tokens: 16000,
+        // Thinking tokens share this budget with the JSON output; a dense
+        // sheet with high-effort thinking can blow through 16k and truncate
+        // the JSON mid-stream.
+        max_tokens: 32000,
+        stream: true,
         thinking: { type: 'adaptive' },
         output_config: {
           effort: 'high',
@@ -133,25 +149,93 @@ export async function extractRouteSheetDirect(
       }),
     });
 
-    const body = await res.json();
     if (!res.ok) {
+      const body = await res.json().catch(() => null);
       return { ok: false, error: body?.error?.message ?? `Anthropic API returned ${res.status}` };
     }
 
-    const message = body as AnthropicMessageResponse;
-    if (message.stop_reason === 'refusal') {
+    // SSE parse: accumulate text deltas for the final JSON, hand thinking
+    // deltas to the caller as they arrive.
+    // Request accepted; nothing streamed back yet.
+    onProgress?.({ stage: 'waiting' });
+
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let outputText = '';
+    let stopReason: string | null = null;
+    let apiError: string | null = null;
+
+    const KNOWN_QUIET_EVENTS = ['message_start', 'content_block_start', 'content_block_stop', 'message_stop', 'ping'];
+    const KNOWN_QUIET_DELTAS = ['signature_delta'];
+
+    // SSE lines may arrive with \r\n through some proxies; normalize before
+    // splitting on blank lines.
+    const handleEvent = (rawEvent: string) => {
+      for (const line of rawEvent.split('\n')) {
+        if (!line.startsWith('data:')) continue;
+        let event: any;
+        try {
+          event = JSON.parse(line.slice(5).trim());
+        } catch {
+          continue;
+        }
+        if (event.type === 'content_block_delta') {
+          if (event.delta?.type === 'thinking_delta' && event.delta.thinking) {
+            onProgress?.({ stage: 'thinking', fragment: event.delta.thinking });
+          } else if (event.delta?.type === 'text_delta' && event.delta.text) {
+            outputText += event.delta.text;
+            onProgress?.({ stage: 'writing', totalChars: outputText.length });
+          } else if (!KNOWN_QUIET_DELTAS.includes(event.delta?.type)) {
+            // Surface stream shapes we don't handle — diagnosis via Metro logs.
+            console.log('route-scan: unhandled delta type', event.delta?.type);
+          }
+        } else if (event.type === 'message_delta' && event.delta?.stop_reason) {
+          stopReason = event.delta.stop_reason;
+        } else if (event.type === 'error') {
+          apiError = event.error?.message ?? 'Streaming error from the API.';
+        } else if (!KNOWN_QUIET_EVENTS.includes(event.type)) {
+          console.log('route-scan: unhandled SSE event', event.type);
+        }
+      }
+    };
+
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+      let boundary;
+      while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+        handleEvent(buffer.slice(0, boundary));
+        buffer = buffer.slice(boundary + 2);
+      }
+    }
+    // Flush whatever trails the last blank line — the final events can land
+    // here when the stream's last chunk doesn't end on an event boundary.
+    buffer += decoder.decode();
+    if (buffer.trim()) handleEvent(buffer);
+
+    if (apiError) {
+      return { ok: false, error: apiError };
+    }
+    if (stopReason === 'refusal') {
       return { ok: false, error: 'Extraction model declined the request.' };
     }
-    const textBlock = message.content.find(b => b.type === 'text' && typeof b.text === 'string');
-    if (!textBlock?.text) {
+    if (stopReason === 'max_tokens') {
+      return { ok: false, error: 'Extraction ran out of output space before finishing. Try again, or crop the photo to just the route sheet.' };
+    }
+    if (!outputText) {
       return { ok: false, error: 'Extraction did not return any text output.' };
     }
 
     let parsed: unknown;
     try {
-      parsed = JSON.parse(textBlock.text);
+      parsed = JSON.parse(outputText);
     } catch {
-      return { ok: false, error: 'Extraction output was not valid JSON.' };
+      return {
+        ok: false,
+        error: `Extraction output was not valid JSON (stop reason: ${stopReason ?? 'unknown'}, ${outputText.length} chars).`,
+      };
     }
 
     const validated = ExtractedRouteSheetSchema.safeParse(parsed);
@@ -170,7 +254,12 @@ export async function extractRouteSheetDirect(
       allPassed: checkpointResults.every(r => r.passed),
     };
   } catch (err) {
+    if (abort.signal.aborted) {
+      return { ok: false, error: 'Extraction timed out after 3 minutes. Check your connection and try again.' };
+    }
     const message = err instanceof Error ? err.message : 'Network error';
     return { ok: false, error: `Could not reach Anthropic: ${message}` };
+  } finally {
+    clearTimeout(timeout);
   }
 }
