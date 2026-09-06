@@ -11,6 +11,7 @@ import { PostRideScreen } from './src/screens/PostRideScreen';
 import { DeviceScreen } from './src/screens/DeviceScreen';
 import { RidesScreen } from './src/screens/RidesScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
+import { ScanRouteScreen } from './src/screens/ScanRouteScreen';
 import { FloatingTabBar } from './src/components/FloatingTabBar';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -52,6 +53,7 @@ export default function App() {
         >
           <Stack.Screen name="Tabs" component={Tabs} />
           <Stack.Screen name="PostRide" component={PostRideScreen} />
+          <Stack.Screen name="ScanRoute" component={ScanRouteScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>

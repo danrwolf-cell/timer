@@ -12,4 +12,5 @@ export type TabParamList = {
 export type RootStackParamList = {
   Tabs: NavigatorScreenParams<TabParamList>;
   PostRide: { rideId: number };
+  ScanRoute: undefined;
 };

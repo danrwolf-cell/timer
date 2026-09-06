@@ -3,15 +3,21 @@ import {
   View, Text, FlatList, TouchableOpacity, TextInput,
   StyleSheet, Alert, Modal, ScrollView, Switch,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, type CompositeNavigationProp } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
-import type { TabParamList } from './types';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList, TabParamList } from './types';
 import { listRoutes, insertRoute, deleteRoute, replaceSegments, type RouteRow } from '../db/queries';
 import type { Segment } from '../engine/pace-engine';
 import { importRouteSheet } from '../import/import-route';
 import { BEEHIVE_2026_AB, BEEHIVE_2026_ALL_OTHERS } from '../import/beehive-2026';
 
-type Props = { navigation: BottomTabNavigationProp<TabParamList, 'RouteLibrary'> };
+type Props = {
+  navigation: CompositeNavigationProp<
+    BottomTabNavigationProp<TabParamList, 'RouteLibrary'>,
+    NativeStackNavigationProp<RootStackParamList>
+  >;
+};
 
 const EMPTY_SEGMENT = (): Partial<Segment> & { distanceText: string; speedText: string } => ({
   distanceText: '',
@@ -120,6 +126,10 @@ export function RouteLibraryScreen({ navigation }: Props) {
           </TouchableOpacity>
         )}
       />
+
+      <TouchableOpacity style={styles.importButton} onPress={() => navigation.navigate('ScanRoute')}>
+        <Text style={styles.importButtonText}>Scan Route Sheet (photo / PDF)</Text>
+      </TouchableOpacity>
 
       <TouchableOpacity style={styles.importButton} onPress={importBeehive2026}>
         <Text style={styles.importButtonText}>Import 2026 Beehive Enduro</Text>

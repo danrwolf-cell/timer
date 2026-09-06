@@ -34,7 +34,14 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "This app uses the camera to photograph route sheets so they can be scanned into a route.",
+          "photosPermission": "This app accesses your photos to import a photographed or saved route sheet."
+        }
+      ]
     ]
   }
 }
