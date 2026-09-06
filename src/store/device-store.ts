@@ -17,12 +17,15 @@ export interface DeviceState {
   lastError: string | null;
   /** Epoch ms anchor sent with START_RIDE; converts device ms to wall clock. */
   rideStartEpochMs: number | null;
+  /** Route last opened on the Device screen; the tab reopens it without params. */
+  lastRouteId: number | null;
 
   setConnectionState: (state: DeviceConnectionState, name?: string | null) => void;
   setStatus: (status: DeviceStatus | null) => void;
   setTransfer: (transfer: DeviceTransfer | null) => void;
   setLastError: (error: string | null) => void;
   setRideStartEpochMs: (epochMs: number | null) => void;
+  setLastRouteId: (routeId: number | null) => void;
 }
 
 export const useDeviceStore = create<DeviceState>(set => ({
@@ -32,6 +35,7 @@ export const useDeviceStore = create<DeviceState>(set => ({
   transfer: null,
   lastError: null,
   rideStartEpochMs: null,
+  lastRouteId: null,
 
   setConnectionState: (connectionState, name) =>
     set(prev => ({
@@ -43,4 +47,5 @@ export const useDeviceStore = create<DeviceState>(set => ({
   setTransfer: transfer => set({ transfer }),
   setLastError: lastError => set({ lastError }),
   setRideStartEpochMs: rideStartEpochMs => set({ rideStartEpochMs }),
+  setLastRouteId: lastRouteId => set({ lastRouteId }),
 }));

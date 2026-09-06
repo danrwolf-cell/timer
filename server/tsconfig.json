@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": [
+    "src/**/*.ts",
+    "../src/engine/pace-engine.ts",
+    "../src/engine/free-territory.ts",
+    "../src/import/route-sheet.ts",
+    "../src/import/route-scan.ts",
+    "../src/import/route-scan-schema.ts",
+    "../src/import/route-scan-prompt.ts"
+  ]
+}

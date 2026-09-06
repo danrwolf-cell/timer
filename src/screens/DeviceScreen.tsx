@@ -1,14 +1,18 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, TextInput, StyleSheet, ScrollView, Alert,
 } from 'react-native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { RouteProp } from '@react-navigation/native';
-import type { RootStackParamList } from './types';
+import type { CompositeNavigationProp, RouteProp } from '@react-navigation/native';
+import { useFocusEffect } from '@react-navigation/native';
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import type { RootStackParamList, TabParamList } from './types';
 import { useEnduroDevice } from '../ble/use-enduro-device';
+import { useDeviceStore } from '../store/device-store';
 import { deviceMgr } from '../ble/device-manager';
 import {
   getSegments, getRouteStartConfig, setRouteStartConfig, setRouteClockOffset,
+  listRoutes, lastRiddenRouteId, type RouteRow,
 } from '../db/queries';
 import { riderStartEpochSeconds } from '../ble/device-protocol';
 import {
@@ -19,15 +23,77 @@ import { importDeviceRideLog } from '../db/import-ride';
 import type { Segment } from '../engine/pace-engine';
 
 type Props = {
-  navigation: NativeStackNavigationProp<RootStackParamList, 'Device'>;
-  route: RouteProp<RootStackParamList, 'Device'>;
+  navigation: CompositeNavigationProp<
+    BottomTabNavigationProp<TabParamList, 'Device'>,
+    NativeStackNavigationProp<RootStackParamList>
+  >;
+  route: RouteProp<TabParamList, 'Device'>;
 };
 
 // Companion surface for the handlebar unit: connect, push the route sheet,
 // drive the ride, pull the log back. Deliberately lean — the device's own
 // display is the product; this screen is the remote control and data path.
 export function DeviceScreen({ navigation, route }: Props) {
-  const { routeId } = route.params;
+  // Tab presses arrive without params — fall back to the last route opened
+  // this session, then to the last route actually ridden.
+  const lastRouteId = useDeviceStore(s => s.lastRouteId);
+  const setLastRouteId = useDeviceStore(s => s.setLastRouteId);
+  const routeId = route.params?.routeId ?? lastRouteId ?? null;
+
+  useEffect(() => {
+    const explicit = route.params?.routeId;
+    if (explicit !== undefined && explicit !== lastRouteId) {
+      setLastRouteId(explicit);
+    } else if (routeId === null) {
+      setLastRouteId(lastRiddenRouteId());
+    }
+  }, [route.params?.routeId, routeId, lastRouteId, setLastRouteId]);
+
+  if (routeId === null) {
+    return <RoutePickerPrompt onPick={setLastRouteId} />;
+  }
+  return <DeviceScreenBody key={routeId} navigation={navigation} routeId={routeId} />;
+}
+
+// No route selected yet and none to fall back on — offer the library inline.
+function RoutePickerPrompt({ onPick }: { onPick: (routeId: number) => void }) {
+  const [routes, setRoutes] = useState<RouteRow[]>([]);
+
+  useFocusEffect(
+    useCallback(() => {
+      setRoutes(listRoutes());
+    }, [])
+  );
+
+  return (
+    <View style={styles.container}>
+      <ScrollView contentContainerStyle={styles.content}>
+        <Text style={styles.title}>Handlebar Unit</Text>
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Pick a route</Text>
+          {routes.length === 0 ? (
+            <Text style={styles.cardBody}>
+              No routes yet — build or import one on the Routes page first.
+            </Text>
+          ) : (
+            routes.map(r => (
+              <TouchableOpacity key={r.id} style={styles.button} onPress={() => onPick(r.id)}>
+                <Text style={styles.buttonText}>{r.name}</Text>
+              </TouchableOpacity>
+            ))
+          )}
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+type BodyProps = {
+  navigation: Props['navigation'];
+  routeId: number;
+};
+
+function DeviceScreenBody({ navigation, routeId }: BodyProps) {
   const {
     connectionState, deviceName, status, transfer, lastError,
     rideStartEpochMs, connect, disconnect, setLastError,
@@ -50,11 +116,15 @@ export function DeviceScreen({ navigation, route }: Props) {
   const autoSyncedRef = useRef(false);
   const [autoSyncNote, setAutoSyncNote] = useState<string | null>(null);
 
+  const setLastRouteId = useDeviceStore(s => s.setLastRouteId);
+
   useEffect(() => {
     const segs = getSegments(routeId);
     if (segs.length === 0) {
       Alert.alert('Empty route', 'This route has no segments.');
-      navigation.goBack();
+      // Drop the selection so the tab falls back to the route picker.
+      navigation.setParams({ routeId: undefined });
+      setLastRouteId(null);
       return;
     }
     setSegments(segs);
@@ -504,7 +574,7 @@ const C = { bg: '#0f0f0f', card: '#1a1a1a', accent: '#FF6600', text: '#fff', mut
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
-  content: { padding: 24, paddingTop: 60, paddingBottom: 60 },
+  content: { padding: 24, paddingTop: 60, paddingBottom: 110 },
   title: { color: C.text, fontSize: 28, fontWeight: '800', marginBottom: 24 },
   card: { backgroundColor: C.card, borderRadius: 14, padding: 20, marginBottom: 16 },
   cardTitle: { color: C.accent, fontSize: 16, fontWeight: '700', marginBottom: 12 },

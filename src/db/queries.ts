@@ -26,6 +26,17 @@ export function listRoutes(): RouteRow[] {
   return getDb().getAllSync('SELECT * FROM routes ORDER BY id DESC') as RouteRow[];
 }
 
+export function getRoute(id: number): RouteRow | null {
+  return (getDb().getFirstSync('SELECT * FROM routes WHERE id = ?', id) as RouteRow | null) ?? null;
+}
+
+export function updateRoute(id: number, name: string, eventDate?: string): void {
+  getDb().runSync(
+    'UPDATE routes SET name = ?, event_date = ? WHERE id = ?',
+    name, eventDate ?? null, id
+  );
+}
+
 export function insertRoute(name: string, eventDate?: string, notes?: string): number {
   const result = getDb().runSync(
     'INSERT INTO routes (name, event_date, notes) VALUES (?, ?, ?)',
@@ -182,6 +193,30 @@ export function replaceFreeZones(routeId: number, zones: FtZoneInput[]): void {
 }
 
 // Rides
+export interface RideRow {
+  id: number;
+  route_id: number;
+  start_time: string;
+  route_name: string;
+}
+
+/** Ride history, newest first, with the route name for display. */
+export function listRides(): RideRow[] {
+  return getDb().getAllSync(
+    `SELECT rides.id, rides.route_id, rides.start_time, routes.name AS route_name
+     FROM rides JOIN routes ON routes.id = rides.route_id
+     ORDER BY rides.id DESC`
+  ) as RideRow[];
+}
+
+/** Route of the most recent ride — the Device tab's fallback when opened without a route. */
+export function lastRiddenRouteId(): number | null {
+  const row = getDb().getFirstSync(
+    'SELECT route_id FROM rides ORDER BY id DESC LIMIT 1'
+  ) as { route_id: number } | null;
+  return row?.route_id ?? null;
+}
+
 export function insertRide(routeId: number, startTime: string, wheelCircumferenceMm: number, sensorId?: string): number {
   const result = getDb().runSync(
     'INSERT INTO rides (route_id, start_time, wheel_circumference_mm, sensor_id) VALUES (?, ?, ?, ?)',
@@ -291,4 +326,20 @@ export function getRawCscLog(rideId: number): RawCscRow[] {
     'SELECT wall_clock_ms, cumulative_revs, wheel_event_time FROM raw_csc_log WHERE ride_id = ? ORDER BY id',
     rideId
   ) as RawCscRow[];
+}
+
+// App settings — small key/value store. First use: the self-hosted
+// route-scan server URL (see route-scan-client.ts).
+export function getSetting(key: string): string | null {
+  const row = getDb().getFirstSync(
+    'SELECT value FROM app_settings WHERE key = ?', key
+  ) as { value: string } | null;
+  return row?.value ?? null;
+}
+
+export function setSetting(key: string, value: string): void {
+  getDb().runSync(
+    'INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+    key, value
+  );
 }
