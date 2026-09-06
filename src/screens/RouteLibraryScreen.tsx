@@ -9,8 +9,6 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList, TabParamList } from './types';
 import { listRoutes, insertRoute, deleteRoute, replaceSegments, type RouteRow } from '../db/queries';
 import type { Segment } from '../engine/pace-engine';
-import { importRouteSheet } from '../import/import-route';
-import { BEEHIVE_2026_AB, BEEHIVE_2026_ALL_OTHERS } from '../import/beehive-2026';
 
 type Props = {
   navigation: CompositeNavigationProp<
@@ -74,20 +72,6 @@ export function RouteLibraryScreen({ navigation }: Props) {
     setSegments([EMPTY_SEGMENT()]);
   }
 
-  function importBeehive2026() {
-    Alert.alert('2026 Beehive Enduro', 'Which split are you riding?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'A & B riders', onPress: () => {
-        importRouteSheet(BEEHIVE_2026_AB);
-        setRoutes(listRoutes());
-      }},
-      { text: 'All others', onPress: () => {
-        importRouteSheet(BEEHIVE_2026_ALL_OTHERS);
-        setRoutes(listRoutes());
-      }},
-    ]);
-  }
-
   function confirmDelete(route: RouteRow) {
     Alert.alert('Delete route', `Delete "${route.name}"?`, [
       { text: 'Cancel', style: 'cancel' },
@@ -129,10 +113,6 @@ export function RouteLibraryScreen({ navigation }: Props) {
 
       <TouchableOpacity style={styles.importButton} onPress={() => navigation.navigate('ScanRoute')}>
         <Text style={styles.importButtonText}>Scan Route Sheet (photo / PDF)</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity style={styles.importButton} onPress={importBeehive2026}>
-        <Text style={styles.importButtonText}>Import 2026 Beehive Enduro</Text>
       </TouchableOpacity>
 
       <TouchableOpacity style={styles.addButton} onPress={() => setShowBuilder(true)}>
