@@ -26,6 +26,17 @@ export function listRoutes(): RouteRow[] {
   return getDb().getAllSync('SELECT * FROM routes ORDER BY id DESC') as RouteRow[];
 }
 
+export function getRoute(id: number): RouteRow | null {
+  return (getDb().getFirstSync('SELECT * FROM routes WHERE id = ?', id) as RouteRow | null) ?? null;
+}
+
+export function updateRoute(id: number, name: string, eventDate?: string): void {
+  getDb().runSync(
+    'UPDATE routes SET name = ?, event_date = ? WHERE id = ?',
+    name, eventDate ?? null, id
+  );
+}
+
 export function insertRoute(name: string, eventDate?: string, notes?: string): number {
   const result = getDb().runSync(
     'INSERT INTO routes (name, event_date, notes) VALUES (?, ?, ?)',

@@ -11,7 +11,9 @@ import { PostRideScreen } from './src/screens/PostRideScreen';
 import { DeviceScreen } from './src/screens/DeviceScreen';
 import { RidesScreen } from './src/screens/RidesScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
-import { ScanRouteScreen } from './src/screens/ScanRouteScreen';
+import { RouteDetailScreen } from './src/screens/RouteDetailScreen';
+import { RouteCameraScreen } from './src/screens/RouteCameraScreen';
+import { ScanReviewScreen } from './src/screens/ScanReviewScreen';
 import { FloatingTabBar } from './src/components/FloatingTabBar';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -53,7 +55,13 @@ export default function App() {
         >
           <Stack.Screen name="Tabs" component={Tabs} />
           <Stack.Screen name="PostRide" component={PostRideScreen} />
-          <Stack.Screen name="ScanRoute" component={ScanRouteScreen} />
+          <Stack.Screen name="RouteDetail" component={RouteDetailScreen} />
+          <Stack.Screen
+            name="ScanCamera"
+            component={RouteCameraScreen}
+            options={{ animation: 'fade_from_bottom' }}
+          />
+          <Stack.Screen name="ScanReview" component={ScanReviewScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>

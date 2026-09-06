@@ -41,6 +41,12 @@
           "cameraPermission": "This app uses the camera to photograph route sheets so they can be scanned into a route.",
           "photosPermission": "This app accesses your photos to import a photographed or saved route sheet."
         }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "This app uses the camera to photograph route sheets so they can be scanned into a route."
+        }
       ]
     ]
   }

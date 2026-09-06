@@ -7,8 +7,10 @@ import { useFocusEffect, type CompositeNavigationProp } from '@react-navigation/
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList, TabParamList } from './types';
+import * as DocumentPicker from 'expo-document-picker';
 import { listRoutes, insertRoute, deleteRoute, replaceSegments, type RouteRow } from '../db/queries';
 import type { Segment } from '../engine/pace-engine';
+import type { ScanMimeType } from '../import/route-scan-result';
 
 type Props = {
   navigation: CompositeNavigationProp<
@@ -27,6 +29,7 @@ const EMPTY_SEGMENT = (): Partial<Segment> & { distanceText: string; speedText: 
 
 export function RouteLibraryScreen({ navigation }: Props) {
   const [routes, setRoutes] = useState<RouteRow[]>([]);
+  const [showNewMenu, setShowNewMenu] = useState(false);
   const [showBuilder, setShowBuilder] = useState(false);
   const [routeName, setRouteName] = useState('');
   const [eventDate, setEventDate] = useState('');
@@ -72,6 +75,20 @@ export function RouteLibraryScreen({ navigation }: Props) {
     setSegments([EMPTY_SEGMENT()]);
   }
 
+  // Upload goes straight into the Files picker — no intermediate screen.
+  async function uploadRouteSheet() {
+    const res = await DocumentPicker.getDocumentAsync({
+      type: ['application/pdf', 'image/jpeg', 'image/png'],
+    });
+    if (res.canceled || !res.assets?.[0]?.uri) return;
+    const asset = res.assets[0];
+    const mimeType: ScanMimeType =
+      asset.mimeType === 'application/pdf' ? 'application/pdf'
+      : asset.mimeType === 'image/png' ? 'image/png'
+      : 'image/jpeg';
+    navigation.navigate('ScanReview', { uri: asset.uri, mimeType, label: asset.name ?? 'File' });
+  }
+
   function confirmDelete(route: RouteRow) {
     Alert.alert('Delete route', `Delete "${route.name}"?`, [
       { text: 'Cancel', style: 'cancel' },
@@ -97,7 +114,7 @@ export function RouteLibraryScreen({ navigation }: Props) {
         renderItem={({ item }) => (
           <TouchableOpacity
             style={styles.routeRow}
-            onPress={() => navigation.navigate('Device', { routeId: item.id })}
+            onPress={() => navigation.navigate('RouteDetail', { routeId: item.id })}
             onLongPress={() => confirmDelete(item)}
           >
             <View>
@@ -111,12 +128,42 @@ export function RouteLibraryScreen({ navigation }: Props) {
         )}
       />
 
-      <TouchableOpacity style={styles.importButton} onPress={() => navigation.navigate('ScanRoute')}>
-        <Text style={styles.importButtonText}>Scan Route Sheet (photo / PDF)</Text>
-      </TouchableOpacity>
+      {showNewMenu && (
+        <View style={styles.newMenu}>
+          <TouchableOpacity
+            style={styles.newMenuItem}
+            onPress={() => {
+              setShowNewMenu(false);
+              setShowBuilder(true);
+            }}
+          >
+            <Text style={styles.newMenuText}>Manual</Text>
+          </TouchableOpacity>
+          <View style={styles.newMenuDivider} />
+          <TouchableOpacity
+            style={styles.newMenuItem}
+            onPress={() => {
+              setShowNewMenu(false);
+              uploadRouteSheet();
+            }}
+          >
+            <Text style={styles.newMenuText}>Upload</Text>
+          </TouchableOpacity>
+          <View style={styles.newMenuDivider} />
+          <TouchableOpacity
+            style={styles.newMenuItem}
+            onPress={() => {
+              setShowNewMenu(false);
+              navigation.navigate('ScanCamera');
+            }}
+          >
+            <Text style={styles.newMenuText}>Scan</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
-      <TouchableOpacity style={styles.addButton} onPress={() => setShowBuilder(true)}>
-        <Text style={styles.addButtonText}>+ New Route</Text>
+      <TouchableOpacity style={styles.addButton} onPress={() => setShowNewMenu(v => !v)}>
+        <Text style={styles.addButtonText}>{showNewMenu ? '× Close' : '+ New Route'}</Text>
       </TouchableOpacity>
 
       <Modal visible={showBuilder} animationType="slide">
@@ -231,11 +278,16 @@ const styles = StyleSheet.create({
     borderRadius: 10, alignItems: 'center',
   },
   addButtonText: { color: '#000', fontWeight: '800', fontSize: 16 },
-  importButton: {
-    marginHorizontal: 20, marginTop: 20, padding: 14,
-    borderRadius: 10, borderWidth: 1, borderColor: C.accent, alignItems: 'center',
+  // Minimal toolbar revealed by + New Route: Manual | Upload | Scan.
+  newMenu: {
+    flexDirection: 'row', alignItems: 'center',
+    marginHorizontal: 20, marginTop: 20,
+    backgroundColor: C.card, borderRadius: 10,
+    borderWidth: 1, borderColor: C.accent,
   },
-  importButtonText: { color: C.accent, fontWeight: '700', fontSize: 14 },
+  newMenuItem: { flex: 1, paddingVertical: 14, alignItems: 'center' },
+  newMenuText: { color: C.accent, fontWeight: '700', fontSize: 14 },
+  newMenuDivider: { width: 1, alignSelf: 'stretch', backgroundColor: '#333' },
   modal: { flex: 1, backgroundColor: C.bg },
   modalContent: { padding: 24, paddingBottom: 60 },
   modalTitle: { color: C.text, fontSize: 24, fontWeight: '800', marginBottom: 20 },

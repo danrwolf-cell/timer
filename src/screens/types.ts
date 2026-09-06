@@ -1,4 +1,5 @@
 import type { NavigatorScreenParams } from '@react-navigation/native';
+import type { ScanMimeType } from '../import/route-scan-result';
 
 // The four tab pages behind the floating bottom menu.
 export type TabParamList = {
@@ -12,5 +13,9 @@ export type TabParamList = {
 export type RootStackParamList = {
   Tabs: NavigatorScreenParams<TabParamList>;
   PostRide: { rideId: number };
-  ScanRoute: undefined;
+  RouteDetail: { routeId: number };
+  // Custom camera with a photo-library shortcut; captures land on ScanReview.
+  ScanCamera: undefined;
+  // Extraction runs immediately on the file passed in; shows results + save.
+  ScanReview: { uri: string; mimeType: ScanMimeType; label: string };
 };
