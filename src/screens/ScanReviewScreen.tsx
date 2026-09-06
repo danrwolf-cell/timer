@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, ActivityIndicator,
+  Image, View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, ActivityIndicator,
 } from 'react-native';
 import { File } from 'expo-file-system';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
@@ -11,6 +11,35 @@ import { getApiKey } from '../import/api-key-store';
 import { extractRouteSheetDirect, type ScanProgress } from '../import/route-scan-direct';
 import { importRouteSheet } from '../import/import-route';
 import type { RouteSheetData, CheckpointResult } from '../import/route-sheet';
+import type { ScanMimeType } from '../import/route-scan-result';
+
+// Claude's vision pipeline downsamples internally to roughly this size on
+// the long edge before it even looks at the image, so uploading a full
+// 8-12MP camera photo buys no extra OCR accuracy — it only pays for itself
+// in slower uploads. Shrinking client-side first cuts that dead weight.
+const MAX_SCAN_EDGE = 1568;
+
+function getImageSize(uri: string): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    Image.getSize(uri, (width, height) => resolve({ width, height }), reject);
+  });
+}
+
+/** Downscales an image file to MAX_SCAN_EDGE on its longest side; PDFs and
+ * already-small images pass through untouched. Resizing always re-encodes
+ * as JPEG, so the caller must use the returned mimeType, not the original. */
+async function prepareForScan(
+  uri: string,
+  mimeType: ScanMimeType
+): Promise<{ uri: string; mimeType: ScanMimeType }> {
+  if (mimeType === 'application/pdf') return { uri, mimeType };
+  const { width, height } = await getImageSize(uri);
+  if (Math.max(width, height) <= MAX_SCAN_EDGE) return { uri, mimeType };
+  const target = width >= height ? { width: MAX_SCAN_EDGE } : { height: MAX_SCAN_EDGE };
+  const rendered = await ImageManipulator.manipulate(uri).resize(target).renderAsync();
+  const result = await rendered.saveAsync({ compress: 0.8, format: SaveFormat.JPEG });
+  return { uri: result.uri, mimeType: 'image/jpeg' };
+}
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'ScanReview'>;
@@ -53,27 +82,9 @@ export function ScanReviewScreen({ navigation, route }: Props) {
         return;
       }
       try {
-        // Full-resolution photos are several MB — past Anthropic's image cap
-        // and painfully slow to upload from a phone. Downscale images to a
-        // width that still reads fine; PDFs go through untouched.
-        let sendMime = mimeType;
-        let dataBase64: string;
-        if (mimeType === 'application/pdf') {
-          dataBase64 = await new File(uri).base64();
-        } else {
-          const rendered = await ImageManipulator.manipulate(uri)
-            .resize({ width: 1600 })
-            .renderAsync();
-          const result = await rendered.saveAsync({
-            compress: 0.7,
-            format: SaveFormat.JPEG,
-            base64: true,
-          });
-          if (!result.base64) throw new Error('Could not encode the image.');
-          dataBase64 = result.base64;
-          sendMime = 'image/jpeg';
-        }
-        const response = await extractRouteSheetDirect(apiKey, sendMime, dataBase64, p => {
+        const scan = await prepareForScan(uri, mimeType);
+        const dataBase64 = await new File(scan.uri).base64();
+        const response = await extractRouteSheetDirect(apiKey, scan.mimeType, dataBase64, p => {
           progressRef.current.stage = p.stage;
           if (p.stage === 'thinking') progressRef.current.thinking += p.fragment;
           if (p.stage === 'writing') progressRef.current.outputChars = p.totalChars;

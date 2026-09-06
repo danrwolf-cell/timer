@@ -134,13 +134,17 @@ export async function extractRouteSheetDirect(
       body: JSON.stringify({
         model: 'claude-sonnet-5',
         // Thinking tokens share this budget with the JSON output; a dense
-        // sheet with high-effort thinking can blow through 16k and truncate
-        // the JSON mid-stream.
+        // sheet can blow through 16k of thinking and truncate the JSON
+        // mid-stream, so leave generous headroom.
         max_tokens: 32000,
         stream: true,
+        // Single-shot transcription, not open-ended reasoning, and
+        // checkKeyTimes() below independently re-validates every extracted
+        // checkpoint — that safety net is what makes 'medium' effort safe.
+        // Adaptive thinking stays on; drop to 'low' if 'medium' holds up.
         thinking: { type: 'adaptive' },
         output_config: {
-          effort: 'high',
+          effort: 'medium',
           format: { type: 'json_schema', schema: EXTRACTED_ROUTE_SHEET_JSON_SCHEMA },
         },
         messages: [
