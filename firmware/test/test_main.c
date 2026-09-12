@@ -79,6 +79,7 @@ static size_t load_segments(pe_segment_t *out, const void *vec_ptr, size_t count
     bool has_speed;
     bool is_reset;
     bool is_free;
+    double hold_seconds;
   } *rows = vec_ptr;
   for (size_t i = 0; i < count && i < MAX_SEGMENTS; i++) {
     out[i].distance = rows[i].distance;
@@ -86,6 +87,7 @@ static size_t load_segments(pe_segment_t *out, const void *vec_ptr, size_t count
     out[i].has_speed = rows[i].has_speed;
     out[i].is_reset = rows[i].is_reset;
     out[i].is_free = rows[i].is_free;
+    out[i].hold_seconds = rows[i].hold_seconds;
   }
   return count;
 }
@@ -210,6 +212,7 @@ static void run_protocol_vectors(void) {
     check_close("route_sheet", i, "distance", e->distance, s->seg.distance);
     check_close("route_sheet", i, "speed", e->speed, s->seg.speed);
     check_bool("route_sheet", i, "has_speed", e->has_speed, s->seg.has_speed);
+    check_close("route_sheet", i, "hold_seconds", e->hold_seconds, s->seg.hold_seconds);
     check_bool("route_sheet", i, "is_reset", e->is_reset, s->seg.is_reset);
     check_bool("route_sheet", i, "is_free", e->is_free, s->seg.is_free);
     check_i64("route_sheet", i, "check_type", e->check_type, s->check_type);

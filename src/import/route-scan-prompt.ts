@@ -28,6 +28,18 @@ Many sheets print "RESET" between two mileage numbers with NO connecting word at
 - **Second number BIGGER than the first (the normal case): a free zone.** This is the exact same no-check-zone construct as "RESET ... TO ...", a bare "... TO ...", a "FREE TIME" list, or "Start Free Time" / "End Free Time" elsewhere on a sheet — just this club's shorthand for it, with "TO" omitted. See Free zones below for how to extract it.
 - **Second number SMALLER than the first (almost always "RESET 0.00", right at a gas stop): a mileage restart, not a break in the ride.** The rider physically resets their trip odometer there; the printed mileage column restarts counting from that point. Do NOT start a new segments array or treat this as free time — keep appending segments to the SAME list, using each segment's own (now odometer-relative) length. Mark ONLY the segment immediately after this kind of restart with isReset: true — this is the one case isReset applies to. Do not set isReset on anything else, even a "RESET ... TO ..." free zone — that's the unrelated, far more common use of the same word, covered above.
 
+## PAUSE stops — a segment with a fixed hold time, not a break in the sequence
+
+Sheets often print "PAUSE n MIN." or "PAUSE n MINS." at a mileage point (a gas stop's wait is the most common case, but a pause can appear anywhere). This is real time that the printed key times downstream already include — every KT after a pause is that many minutes later than plain distance/speed math would give. It is NOT the same as a free zone (which doesn't add any time, just protects against a check) and NOT the same as isFree with no holdSeconds (which also adds no time).
+
+For each PAUSE, insert one extra segment into the segments list at that exact point in ride order:
+- distanceMi: 0
+- speedMph: null, isFree: true (no pace requirement — there's no distance to score)
+- holdSeconds: the pause duration in seconds (minutes × 60 — "PAUSE 21 MINS." → 1260, "PAUSE 10 MINS." → 600)
+- label: something identifying it, e.g. "Pause" or "Gas pause"
+
+On every other segment, holdSeconds must be null — only a PAUSE line gets a non-null value.
+
 ## Free zones — separate from segments entirely
 
 Route sheets mark stretches where a secret/surprise check is not allowed — see the "RESET" forms above, plus a bare "... TO ...", a "FREE TIME" list, or "Start Free Time" / "End Free Time". All of these mean the same thing: a no-check zone. Mileage and the key-time clock both keep accruing completely normally through it — nothing about the pace math changes. Extract every one of these as a {startMi, endMi} pair in CUMULATIVE course miles (the running total of every segment so far, not the sheet's possibly-restarted mileage column) — separate from the segments list, not encoded as isFree.
@@ -42,5 +54,5 @@ For every printed key time on the sheet, record: a short label, the CUMULATIVE c
 
 - routeName: a short descriptive name (include the event name and year if printed).
 - eventDate: the event date if printed on the sheet, else null.
-- If the sheet has a rider-class split (e.g. two sets of segments after a common point), only extract ONE branch — prefer the first one printed, or the one that appears to apply to the widest set of riders — and ignore the other. Do not merge the two.
+- If the sheet has a rider-class split, only extract ONE branch — prefer the first one printed (leftmost column, or the one that appears to apply to the widest set of riders) — and ignore the other. Do not merge the two: this applies whether the split happens partway down a single list (a shared prefix that forks later) OR the sheet prints two fully independent columns side by side from mile 0.00 (a common layout — each class gets its own column of mileage/speed/KT down the whole page, sometimes with the same early entries by coincidence). In the side-by-side case, read your chosen column top-to-bottom as a single ride-ordered sequence using ONLY that column's own numbers — never take a distance from one column and a speed or KT from the other, and never interleave rows from both columns by mileage. If the page layout is ambiguous about which numbers belong to which column, re-examine the visual layout (column position, not just reading order) before extracting.
 - Numeric accuracy on checkpoints matters most: they get checked automatically against the segments you extract, so a mistyped digit anywhere will surface as a specific failing checkpoint rather than silently corrupting the whole route.`;

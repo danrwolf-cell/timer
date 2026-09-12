@@ -19,6 +19,7 @@ export interface SegmentRow {
   is_free: number;
   label: string | null;
   check_type: string | null;
+  hold_seconds: number | null;
 }
 
 // Routes
@@ -139,6 +140,7 @@ export function getSegments(routeId: number): Segment[] {
     isFree: r.is_free === 1,
     label: r.label ?? undefined,
     checkType: (r.check_type ?? undefined) as Segment['checkType'],
+    holdSeconds: r.hold_seconds ?? undefined,
   }));
 }
 
@@ -148,11 +150,12 @@ export function insertSegment(
   segment: Segment
 ): void {
   getDb().runSync(
-    `INSERT INTO route_segments (route_id, sort_order, distance, speed, is_reset, is_free, label, check_type)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO route_segments (route_id, sort_order, distance, speed, is_reset, is_free, label, check_type, hold_seconds)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     routeId, order, segment.distance, segment.speed ?? null,
     segment.isReset ? 1 : 0, segment.isFree ? 1 : 0,
-    segment.label ?? null, segment.checkType ?? null
+    segment.label ?? null, segment.checkType ?? null,
+    segment.holdSeconds ?? null
   );
 }
 

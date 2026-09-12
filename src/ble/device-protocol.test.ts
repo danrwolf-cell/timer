@@ -92,6 +92,26 @@ describe('route sheet pack/parse', () => {
       { distance: 70, speed: 30, isReset: false, isFree: false },
     ])).toThrow(/distance/);
   });
+
+  it('round-trips holdSeconds (a scheduled pause or gas-stop wait)', () => {
+    const decoded = parseRouteSheet(packRouteSheet([
+      { distance: 0, speed: null, isReset: false, isFree: true, holdSeconds: 1260, label: 'Gas pause' },
+    ]));
+    expect(decoded[0].holdSeconds).toBe(1260);
+  });
+
+  it('omits holdSeconds (undefined) for a segment that never carried one', () => {
+    const decoded = parseRouteSheet(packRouteSheet([
+      { distance: 1, speed: 30, isReset: false, isFree: false },
+    ]));
+    expect(decoded[0].holdSeconds).toBeUndefined();
+  });
+
+  it('rejects out-of-range holdSeconds', () => {
+    expect(() => packRouteSheet([
+      { distance: 0, speed: null, isReset: false, isFree: true, holdSeconds: 70_000 },
+    ])).toThrow(/hold/);
+  });
 });
 
 describe('route sheet chunking', () => {

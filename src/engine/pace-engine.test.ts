@@ -78,6 +78,41 @@ describe('computeKeyTime', () => {
   });
 });
 
+describe('computeKeyTime with holdSeconds (pause / gas-stop wait)', () => {
+  // A 10-minute PAUSE printed on the sheet: zero distance, no pace
+  // requirement, but its 600s still has to land in the schedule — unlike a
+  // plain free segment, which contributes nothing.
+  const pause = (seconds: number): Segment => ({
+    distance: 0, speed: null, isReset: false, isFree: true, holdSeconds: seconds,
+  });
+
+  it('adds nothing when holdSeconds is unset (existing free segments unaffected)', () => {
+    const segments = [scored(5, 30), free(2), scored(3, 24)];
+    expect(computeKeyTime(segments, 2, 1.5)).toBeCloseTo(825);
+  });
+
+  it('a pause segment on its own contributes its hold time once entered', () => {
+    const segments = [scored(5, 30), pause(600)];
+    // 5mi @ 30mph = 600s riding, then the full 600s hold once at/through it
+    expect(computeKeyTime(segments, 1, 0)).toBeCloseTo(1200);
+  });
+
+  it('hold time carries into every checkpoint past it', () => {
+    // Mirrors the Michaux sheet shape: ride, PAUSE 10 MIN, ride again.
+    const segments = [scored(3.2, 24), pause(600), scored(2, 12)];
+    // completed through segment 2 (past the pause): 480s riding + 600s hold
+    expect(computeKeyTime(segments, 2, 0)).toBeCloseTo(1080);
+    // plus another 1mi @ 12mph = 300s
+    expect(computeKeyTime(segments, 2, 1)).toBeCloseTo(1380);
+  });
+
+  it('a hold also applies on a non-free scored segment (defensive — sheets only pair it with isFree)', () => {
+    const segments = [{ distance: 1, speed: 30, isReset: false, isFree: false, holdSeconds: 120 }];
+    // 1mi @ 30mph = 120s + 120s hold
+    expect(computeKeyTime(segments, 0, 1)).toBeCloseTo(240);
+  });
+});
+
 describe('computeDeviation', () => {
   it('returns positive when late', () => {
     expect(computeDeviation(610, 600)).toBeCloseTo(10);

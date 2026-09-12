@@ -26,6 +26,7 @@ double pe_completed_key_time(const pe_segment_t *segments, size_t count,
     if (!seg->is_free && seg->has_speed) {
       key_time += (seg->distance / seg->speed) * 3600.0;
     }
+    key_time += seg->hold_seconds;
   }
   return key_time;
 }
@@ -35,9 +36,9 @@ double pe_compute_key_time(const pe_segment_t *segments, size_t count,
   double completed = pe_completed_key_time(segments, count, segment_index);
   const pe_segment_t *current = &segments[segment_index];
   if (current->is_free || !current->has_speed) {
-    return completed;
+    return completed + current->hold_seconds;
   }
-  return completed + (distance_in_segment / current->speed) * 3600.0;
+  return completed + (distance_in_segment / current->speed) * 3600.0 + current->hold_seconds;
 }
 
 double pe_compute_deviation(double elapsed_seconds, double key_time_seconds) {

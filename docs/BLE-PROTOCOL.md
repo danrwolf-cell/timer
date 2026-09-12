@@ -33,11 +33,15 @@ reflection, no final XOR. Implemented identically in TS and C.
 ## ROUTE_SHEET payload (phone → device)
 
 ```
-[version u8 = 0x01]
+[version u8 = 0x02]
 [segment_count u8]
 segment_count ×:
   [distance u16]      thousandths of a mile (0.001 mi units, max 65.535 mi)
   [speed u16]         tenths of a mph; 0 and !HAS_SPEED flag = free/null
+  [hold_s u16]        fixed seconds this segment adds to the key-time
+                      schedule, independent of distance/speed — a scheduled
+                      pause or gas-stop wait (e.g. "PAUSE 21 MINS."). 0 when
+                      unused. Applies regardless of IS_FREE/HAS_SPEED.
   [flags u8]          bit0 IS_RESET, bit1 IS_FREE, bit2 HAS_SPEED,
                       bits 4-7 check_type (0 none, 1 known, 2 secret,
                       3 emergency, 4 gas, 5 start, 6 finish)
@@ -45,6 +49,8 @@ segment_count ×:
   [label utf8]        label_len bytes
 [crc16 u16]           over every preceding byte
 ```
+
+v2 adds `hold_s`; no deployed device predates it.
 
 Distances are quantized to 0.001 mi. Route sheets are written in hundredths,
 so this is lossless in practice; both ends divide the same integer by 1000.0,

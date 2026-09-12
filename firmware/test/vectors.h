@@ -184,12 +184,14 @@ static const struct {
   bool has_speed;
   bool is_reset;
   bool is_free;
+  double hold_seconds;
 } pace_segment_vectors[] = {
-  { .distance = 1.0, .speed = 30.0, .has_speed = true, .is_reset = false, .is_free = false },
-  { .distance = 0.25, .speed = 0.0, .has_speed = false, .is_reset = false, .is_free = true },
-  { .distance = 1.0, .speed = 24.0, .has_speed = true, .is_reset = true, .is_free = false },
-  { .distance = 0.5, .speed = 18.0, .has_speed = true, .is_reset = false, .is_free = true },
-  { .distance = 2.0, .speed = 36.0, .has_speed = true, .is_reset = true, .is_free = false },
+  { .distance = 1.0, .speed = 30.0, .has_speed = true, .is_reset = false, .is_free = false, .hold_seconds = 0.0 },
+  { .distance = 0.25, .speed = 0.0, .has_speed = false, .is_reset = false, .is_free = true, .hold_seconds = 0.0 },
+  { .distance = 1.0, .speed = 24.0, .has_speed = true, .is_reset = true, .is_free = false, .hold_seconds = 0.0 },
+  { .distance = 0.5, .speed = 18.0, .has_speed = true, .is_reset = false, .is_free = true, .hold_seconds = 0.0 },
+  { .distance = 0.0, .speed = 0.0, .has_speed = false, .is_reset = false, .is_free = true, .hold_seconds = 300.0 },
+  { .distance = 2.0, .speed = 36.0, .has_speed = true, .is_reset = true, .is_free = false, .hold_seconds = 0.0 },
 };
 static const size_t pace_segment_count = sizeof(pace_segment_vectors) / sizeof(pace_segment_vectors[0]);
 
@@ -205,12 +207,12 @@ static const pace_vector_t pace_vectors[] = {
   { .cumulative_distance = 2.25, .exp_segment_index = 2, .exp_distance_in_segment = 1.0, .exp_key_time = 270.0, .exp_in_free = false },
   { .cumulative_distance = 2.3, .exp_segment_index = 3, .exp_distance_in_segment = 0.04999999999999982, .exp_key_time = 270.0, .exp_in_free = true },
   { .cumulative_distance = 2.75, .exp_segment_index = 3, .exp_distance_in_segment = 0.5, .exp_key_time = 270.0, .exp_in_free = true },
-  { .cumulative_distance = 3.0, .exp_segment_index = 4, .exp_distance_in_segment = 0.25, .exp_key_time = 295.0, .exp_in_free = false },
-  { .cumulative_distance = 4.75, .exp_segment_index = 4, .exp_distance_in_segment = 2.0, .exp_key_time = 470.0, .exp_in_free = false },
-  { .cumulative_distance = 4.7500001, .exp_segment_index = 4, .exp_distance_in_segment = 2.0000001000000003, .exp_key_time = 470.00001, .exp_in_free = false },
-  { .cumulative_distance = 5.0, .exp_segment_index = 4, .exp_distance_in_segment = 2.25, .exp_key_time = 495.0, .exp_in_free = false },
-  { .cumulative_distance = 6.0, .exp_segment_index = 4, .exp_distance_in_segment = 3.25, .exp_key_time = 595.0, .exp_in_free = false },
-  { .cumulative_distance = 10.0, .exp_segment_index = 4, .exp_distance_in_segment = 7.25, .exp_key_time = 995.0, .exp_in_free = false },
+  { .cumulative_distance = 3.0, .exp_segment_index = 5, .exp_distance_in_segment = 0.25, .exp_key_time = 595.0, .exp_in_free = false },
+  { .cumulative_distance = 4.75, .exp_segment_index = 5, .exp_distance_in_segment = 2.0, .exp_key_time = 770.0, .exp_in_free = false },
+  { .cumulative_distance = 4.7500001, .exp_segment_index = 5, .exp_distance_in_segment = 2.0000001000000003, .exp_key_time = 770.00001, .exp_in_free = false },
+  { .cumulative_distance = 5.0, .exp_segment_index = 5, .exp_distance_in_segment = 2.25, .exp_key_time = 795.0, .exp_in_free = false },
+  { .cumulative_distance = 6.0, .exp_segment_index = 5, .exp_distance_in_segment = 3.25, .exp_key_time = 895.0, .exp_in_free = false },
+  { .cumulative_distance = 10.0, .exp_segment_index = 5, .exp_distance_in_segment = 7.25, .exp_key_time = 1295.0, .exp_in_free = false },
 };
 static const size_t pace_vector_count = sizeof(pace_vectors) / sizeof(pace_vectors[0]);
 
@@ -221,7 +223,7 @@ static const crossed_reset_vector_t crossed_reset_vectors[] = {
   { .prev_index = 0, .current_index = 2, .expected = true },
   { .prev_index = 0, .current_index = 4, .expected = true },
   { .prev_index = 2, .current_index = 3, .expected = false },
-  { .prev_index = 3, .current_index = 4, .expected = true },
+  { .prev_index = 3, .current_index = 4, .expected = false },
   { .prev_index = 2, .current_index = 1, .expected = false },
   { .prev_index = 4, .current_index = 4, .expected = false },
   { .prev_index = 1, .current_index = 4, .expected = true },
@@ -235,10 +237,11 @@ static const struct {
   bool has_speed;
   bool is_reset;
   bool is_free;
+  double hold_seconds;
 } replay_segment_vectors[] = {
-  { .distance = 1.0, .speed = 30.0, .has_speed = true, .is_reset = false, .is_free = false },
-  { .distance = 0.25, .speed = 0.0, .has_speed = false, .is_reset = false, .is_free = true },
-  { .distance = 1.0, .speed = 24.0, .has_speed = true, .is_reset = true, .is_free = false },
+  { .distance = 1.0, .speed = 30.0, .has_speed = true, .is_reset = false, .is_free = false, .hold_seconds = 0.0 },
+  { .distance = 0.25, .speed = 0.0, .has_speed = false, .is_reset = false, .is_free = true, .hold_seconds = 0.0 },
+  { .distance = 1.0, .speed = 24.0, .has_speed = true, .is_reset = true, .is_free = false, .hold_seconds = 0.0 },
 };
 static const size_t replay_segment_count = sizeof(replay_segment_vectors) / sizeof(replay_segment_vectors[0]);
 
@@ -869,7 +872,7 @@ static const size_t replay_power_cycle_point_count = sizeof(replay_power_cycle_p
 
 /* ---- protocol vectors (device-protocol.ts <-> route_sheet.c) ---- */
 
-static const uint8_t route_sheet_payload[] = { 1, 5, 232, 3, 44, 1, 4, 5, 83, 101, 103, 32, 49, 250, 0, 0, 0, 2, 8, 84, 114, 97, 110, 115, 102, 101, 114, 232, 3, 240, 0, 21, 13, 83, 101, 103, 32, 50, 32, 40, 114, 101, 115, 101, 116, 41, 190, 10, 185, 0, 68, 0, 108, 2, 75, 1, 101, 6, 70, 105, 110, 105, 115, 104, 115, 84 };
+static const uint8_t route_sheet_payload[] = { 2, 6, 232, 3, 44, 1, 0, 0, 4, 5, 83, 101, 103, 32, 49, 250, 0, 0, 0, 0, 0, 2, 8, 84, 114, 97, 110, 115, 102, 101, 114, 232, 3, 240, 0, 0, 0, 21, 13, 83, 101, 103, 32, 50, 32, 40, 114, 101, 115, 101, 116, 41, 190, 10, 185, 0, 0, 0, 68, 0, 0, 0, 0, 0, 236, 4, 66, 9, 71, 97, 115, 32, 112, 97, 117, 115, 101, 108, 2, 75, 1, 0, 0, 101, 6, 70, 105, 110, 105, 115, 104, 83, 233 };
 static const size_t route_sheet_payload_len = sizeof(route_sheet_payload);
 
 typedef struct {
@@ -878,16 +881,18 @@ typedef struct {
   bool has_speed;
   bool is_reset;
   bool is_free;
+  double hold_seconds;
   uint8_t check_type;
   const char *label;
 } route_sheet_expected_t;
 
 static const route_sheet_expected_t route_sheet_expected[] = {
-  { .distance = 1.0, .speed = 30.0, .has_speed = true, .is_reset = false, .is_free = false, .check_type = 0, .label = "Seg 1" },
-  { .distance = 0.25, .speed = 0.0, .has_speed = false, .is_reset = false, .is_free = true, .check_type = 0, .label = "Transfer" },
-  { .distance = 1.0, .speed = 24.0, .has_speed = true, .is_reset = true, .is_free = false, .check_type = 1, .label = "Seg 2 (reset)" },
-  { .distance = 2.75, .speed = 18.5, .has_speed = true, .is_reset = false, .is_free = false, .check_type = 4, .label = "" },
-  { .distance = 0.62, .speed = 33.1, .has_speed = true, .is_reset = true, .is_free = false, .check_type = 6, .label = "Finish" },
+  { .distance = 1.0, .speed = 30.0, .has_speed = true, .is_reset = false, .is_free = false, .hold_seconds = 0.0, .check_type = 0, .label = "Seg 1" },
+  { .distance = 0.25, .speed = 0.0, .has_speed = false, .is_reset = false, .is_free = true, .hold_seconds = 0.0, .check_type = 0, .label = "Transfer" },
+  { .distance = 1.0, .speed = 24.0, .has_speed = true, .is_reset = true, .is_free = false, .hold_seconds = 0.0, .check_type = 1, .label = "Seg 2 (reset)" },
+  { .distance = 2.75, .speed = 18.5, .has_speed = true, .is_reset = false, .is_free = false, .hold_seconds = 0.0, .check_type = 4, .label = "" },
+  { .distance = 0.0, .speed = 0.0, .has_speed = false, .is_reset = false, .is_free = true, .hold_seconds = 1260.0, .check_type = 4, .label = "Gas pause" },
+  { .distance = 0.62, .speed = 33.1, .has_speed = true, .is_reset = true, .is_free = false, .hold_seconds = 0.0, .check_type = 6, .label = "Finish" },
 };
 static const size_t route_sheet_expected_count = sizeof(route_sheet_expected) / sizeof(route_sheet_expected[0]);
 
@@ -906,11 +911,11 @@ typedef struct {
 
 static const status_vector_t status_vectors[] = {
   { .sensor_status = 2, .ride_state = 1, .battery_pct = 88, .deviation_seconds = -74.6, .cumulative_distance_mi = 12.345, .segment_index = 4, .route_loaded = true, .in_free_section = true,
-    .expected = { 1, 2, 1, 88, 181, 255, 57, 48, 0, 0, 4, 3 } },
+    .expected = { 2, 2, 1, 88, 181, 255, 57, 48, 0, 0, 4, 3 } },
   { .sensor_status = 0, .ride_state = 0, .battery_pct = 255, .deviation_seconds = 0.0, .cumulative_distance_mi = 0.0, .segment_index = 0, .route_loaded = false, .in_free_section = false,
-    .expected = { 1, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0 } },
+    .expected = { 2, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0 } },
   { .sensor_status = 3, .ride_state = 2, .battery_pct = 5, .deviation_seconds = 100000.0, .cumulative_distance_mi = 250.75, .segment_index = 12, .route_loaded = true, .in_free_section = false,
-    .expected = { 1, 3, 2, 5, 255, 127, 126, 211, 3, 0, 12, 1 } },
+    .expected = { 2, 3, 2, 5, 255, 127, 126, 211, 3, 0, 12, 1 } },
 };
 static const size_t status_vector_count = sizeof(status_vectors) / sizeof(status_vectors[0]);
 

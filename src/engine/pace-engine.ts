@@ -7,6 +7,14 @@ export interface Segment {
   isFree: boolean;
   label?: string;
   checkType?: CheckType; // type of event at the END of this segment; pace engine ignores it
+  // Fixed seconds this segment adds to the key-time schedule, independent of
+  // distance/speed — a scheduled pause or gas-stop wait printed on the sheet
+  // (e.g. "PAUSE 21 MINS."). Distance is typically 0. Applies regardless of
+  // isFree/speed: a pause has no pace to score, but the printed key times
+  // downstream still assume its duration passed, so it must still count
+  // against the clock (unlike a plain free/transfer segment, which
+  // contributes nothing).
+  holdSeconds?: number;
 }
 
 export interface RidePosition {
@@ -38,6 +46,7 @@ export function completedKeyTime(segments: Segment[], segmentIndex: number): num
     if (!seg.isFree && seg.speed !== null) {
       keyTime += (seg.distance / seg.speed) * 3600;
     }
+    keyTime += seg.holdSeconds ?? 0;
   }
   return keyTime;
 }
@@ -50,10 +59,11 @@ export function computeKeyTime(
 ): number {
   const completed = completedKeyTime(segments, segmentIndex);
   const current = segments[segmentIndex];
+  const hold = current.holdSeconds ?? 0;
   if (current.isFree || current.speed === null) {
-    return completed;
+    return completed + hold;
   }
-  return completed + (distanceInSegment / current.speed) * 3600;
+  return completed + (distanceInSegment / current.speed) * 3600 + hold;
 }
 
 // Positive = late, negative = early (seconds)

@@ -56,9 +56,10 @@ const EXTRACTED_ROUTE_SHEET_JSON_SCHEMA = {
               { type: 'null' },
             ],
           },
+          holdSeconds: { anyOf: [{ type: 'number' }, { type: 'null' }] },
         },
         additionalProperties: false,
-        required: ['distanceMi', 'speedMph', 'isFree', 'isReset', 'label', 'checkType'],
+        required: ['distanceMi', 'speedMph', 'isFree', 'isReset', 'label', 'checkType', 'holdSeconds'],
       },
     },
     freeZones: {

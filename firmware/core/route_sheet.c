@@ -39,12 +39,13 @@ int rs_decode_route_sheet(const uint8_t *payload, size_t len, rs_route_t *out) {
   size_t end = len - 2;
 
   for (uint8_t i = 0; i < count; i++) {
-    if (offset + 6 > end) return RS_ERR_TRUNCATED;
+    if (offset + 8 > end) return RS_ERR_TRUNCATED;
     uint16_t distance_thou = read_u16(payload + offset);
     uint16_t speed_tenths = read_u16(payload + offset + 2);
-    uint8_t flags = payload[offset + 4];
-    uint8_t label_len = payload[offset + 5];
-    offset += 6;
+    uint16_t hold_s = read_u16(payload + offset + 4);
+    uint8_t flags = payload[offset + 6];
+    uint8_t label_len = payload[offset + 7];
+    offset += 8;
     if (offset + label_len > end) return RS_ERR_TRUNCATED;
 
     rs_segment_t *s = &out->segments[i];
@@ -55,6 +56,7 @@ int rs_decode_route_sheet(const uint8_t *payload, size_t len, rs_route_t *out) {
     s->seg.speed = s->seg.has_speed ? (double)speed_tenths / 10.0 : 0.0;
     s->seg.is_reset = (flags & FLAG_IS_RESET) != 0;
     s->seg.is_free = (flags & FLAG_IS_FREE) != 0;
+    s->seg.hold_seconds = (double)hold_s;
     s->check_type = (uint8_t)((flags >> 4) & 0x0F);
 
     size_t copy = label_len <= RS_MAX_LABEL ? label_len : RS_MAX_LABEL;

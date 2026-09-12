@@ -26,6 +26,10 @@ export interface ExtractedSegment {
   isReset: boolean;
   label: string | null;
   checkType: CheckType | null;
+  // Fixed seconds this segment adds to the key-time schedule, independent of
+  // distanceMi/speedMph — a printed "PAUSE n MIN(S)." or a gas-stop wait.
+  // null when the segment isn't a pause.
+  holdSeconds: number | null;
 }
 
 export interface ExtractedFreeZone {
@@ -98,6 +102,7 @@ export function toRouteSheetData(extracted: ExtractedRouteSheet): {
     isFree: s.isFree,
     label: s.label ?? undefined,
     checkType: s.checkType ?? undefined,
+    holdSeconds: s.holdSeconds ?? undefined,
   }));
 
   const freeZones: FtZoneInput[] = extracted.freeZones.map(z => ({

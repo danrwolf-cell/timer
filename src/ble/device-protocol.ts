@@ -11,7 +11,9 @@ export const CONTROL_CHAR = '9e4b0003-f2e4-4b84-8e4e-2e8f1b4c6d3a';
 export const DEVICE_STATUS_CHAR = '9e4b0004-f2e4-4b84-8e4e-2e8f1b4c6d3a';
 export const RIDE_LOG_CHAR = '9e4b0005-f2e4-4b84-8e4e-2e8f1b4c6d3a';
 
-export const PROTOCOL_VERSION = 0x01;
+// v2: adds hold_seconds (fixed pause/hold time) to each ROUTE_SHEET segment —
+// see docs/BLE-PROTOCOL.md. No deployed device predates this; safe to bump.
+export const PROTOCOL_VERSION = 0x02;
 export const MAX_LABEL_BYTES = 23;
 
 // Segment flags
@@ -58,6 +60,10 @@ export function packRouteSheet(segments: Segment[]): Uint8Array {
     if (speedTenths < 0 || speedTenths > 0xffff) {
       throw new Error(`segment speed out of range: ${seg.speed} mph`);
     }
+    const holdSeconds = Math.round(seg.holdSeconds ?? 0);
+    if (holdSeconds < 0 || holdSeconds > 0xffff) {
+      throw new Error(`segment hold time out of range: ${seg.holdSeconds}s`);
+    }
 
     let flags = 0;
     if (seg.isReset) flags |= FLAG_IS_RESET;
@@ -72,6 +78,7 @@ export function packRouteSheet(segments: Segment[]): Uint8Array {
     body.push(
       distanceThou & 0xff, (distanceThou >> 8) & 0xff,
       speedTenths & 0xff, (speedTenths >> 8) & 0xff,
+      holdSeconds & 0xff, (holdSeconds >> 8) & 0xff,
       flags,
       label.length,
       ...label
@@ -99,12 +106,13 @@ export function parseRouteSheet(payload: Uint8Array): Segment[] {
   const end = payload.length - 2;
 
   for (let i = 0; i < count; i++) {
-    if (offset + 6 > end) throw new Error('route sheet truncated');
+    if (offset + 8 > end) throw new Error('route sheet truncated');
     const distanceThou = payload[offset] | (payload[offset + 1] << 8);
     const speedTenths = payload[offset + 2] | (payload[offset + 3] << 8);
-    const flags = payload[offset + 4];
-    const labelLen = payload[offset + 5];
-    offset += 6;
+    const holdSeconds = payload[offset + 4] | (payload[offset + 5] << 8);
+    const flags = payload[offset + 6];
+    const labelLen = payload[offset + 7];
+    offset += 8;
     if (offset + labelLen > end) throw new Error('route sheet truncated');
     const label = labelLen > 0 ? decoder.decode(payload.subarray(offset, offset + labelLen)) : undefined;
     offset += labelLen;
@@ -117,6 +125,7 @@ export function parseRouteSheet(payload: Uint8Array): Segment[] {
       isFree: (flags & FLAG_IS_FREE) !== 0,
       label,
       checkType: CHECK_TYPES[(flags >> 4) & 0x0f],
+      holdSeconds: holdSeconds > 0 ? holdSeconds : undefined,
     });
   }
   if (offset !== end) throw new Error('route sheet has trailing bytes');

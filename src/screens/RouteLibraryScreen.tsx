@@ -19,9 +19,10 @@ type Props = {
   >;
 };
 
-const EMPTY_SEGMENT = (): Partial<Segment> & { distanceText: string; speedText: string } => ({
+const EMPTY_SEGMENT = (): Partial<Segment> & { distanceText: string; speedText: string; pauseText: string } => ({
   distanceText: '',
   speedText: '',
+  pauseText: '',
   isReset: false,
   isFree: false,
   label: '',
@@ -50,8 +51,12 @@ export function RouteLibraryScreen({ navigation }: Props) {
     for (const s of segments) {
       const dist = parseFloat(s.distanceText);
       const spd = s.isFree ? null : parseFloat(s.speedText);
-      if (isNaN(dist) || dist <= 0) {
-        Alert.alert('Each segment needs a valid distance');
+      const pauseMin = s.pauseText ? parseFloat(s.pauseText) : 0;
+      const holdSeconds = pauseMin > 0 ? Math.round(pauseMin * 60) : undefined;
+      // A pause segment is the one case distance may be 0 — it's a fixed
+      // hold time, not a stretch of road.
+      if (isNaN(dist) || dist < 0 || (dist === 0 && !holdSeconds)) {
+        Alert.alert('Each segment needs a valid distance (or a pause to mark it as a hold)');
         return;
       }
       if (!s.isFree && (isNaN(spd!) || spd! <= 0)) {
@@ -64,6 +69,7 @@ export function RouteLibraryScreen({ navigation }: Props) {
         isReset: s.isReset ?? false,
         isFree: s.isFree ?? false,
         label: s.label || undefined,
+        holdSeconds,
       });
     }
     const id = insertRoute(routeName.trim(), eventDate.trim() || undefined);
@@ -219,6 +225,16 @@ export function RouteLibraryScreen({ navigation }: Props) {
                   keyboardType="decimal-pad"
                   value={seg.speedText}
                   onChangeText={v => updateSegment(i, { speedText: v })}
+                />
+              )}
+              {seg.isFree && (
+                <TextInput
+                  style={styles.input}
+                  placeholder="Pause (minutes, optional — a PAUSE stop or gas-stop wait)"
+                  placeholderTextColor="#888"
+                  keyboardType="decimal-pad"
+                  value={seg.pauseText}
+                  onChangeText={v => updateSegment(i, { pauseText: v })}
                 />
               )}
               <View style={styles.row}>

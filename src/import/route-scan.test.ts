@@ -33,8 +33,8 @@ describe('toRouteSheetData + checkKeyTimes (extraction -> engine round trip)', (
     eventDate: '2026-08-30',
     startClockTime: '9:00',
     segments: [
-      { distanceMi: 9.2, speedMph: 24, isFree: false, isReset: false, label: null, checkType: null },
-      { distanceMi: 4.0, speedMph: 30, isFree: false, isReset: false, label: null, checkType: null },
+      { distanceMi: 9.2, speedMph: 24, isFree: false, isReset: false, label: null, checkType: null, holdSeconds: null },
+      { distanceMi: 4.0, speedMph: 30, isFree: false, isReset: false, label: null, checkType: null, holdSeconds: null },
     ],
     freeZones: [{ startMi: 5, endMi: 6, reason: 'landmark' }],
     checkpoints: [
@@ -61,5 +61,28 @@ describe('toRouteSheetData + checkKeyTimes (extraction -> engine round trip)', (
     const results = checkKeyTimes(routeSheet.segments, checkpoints);
     expect(results[0].passed).toBe(false);
     expect(results[0].deltaSeconds).not.toBe(0);
+  });
+
+  it('carries holdSeconds through so a PAUSE stop passes checkKeyTimes', () => {
+    // Mirrors the Michaux sheet shape: ride, PAUSE 10 MIN. (zero-distance,
+    // isFree, holdSeconds), ride again — the checkpoint after the pause must
+    // land on the clock time printed 10 minutes later, not 10 minutes short.
+    const withPause: ExtractedRouteSheet = {
+      routeName: 'Pause Test',
+      eventDate: null,
+      startClockTime: '9:00',
+      segments: [
+        { distanceMi: 9.2, speedMph: 24, isFree: false, isReset: false, label: null, checkType: null, holdSeconds: null },
+        { distanceMi: 0, speedMph: null, isFree: true, isReset: false, label: 'Pause', checkType: null, holdSeconds: 600 },
+        { distanceMi: 4.0, speedMph: 30, isFree: false, isReset: false, label: null, checkType: null, holdSeconds: null },
+      ],
+      freeZones: [],
+      checkpoints: [
+        { label: 'After pause', afterMile: 13.2, clockTime: '9:41' }, // 9:23 + 8:00 riding + 10:00 pause
+      ],
+    };
+    const { routeSheet, checkpoints } = toRouteSheetData(withPause);
+    const results = checkKeyTimes(routeSheet.segments, checkpoints);
+    expect(results[0].passed).toBe(true);
   });
 });

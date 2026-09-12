@@ -63,6 +63,10 @@ export function initSchema(): void {
   // Signed ms the timekeeper's clock reads ahead of this phone's clock.
   // Key times are quoted in event time, so this is what makes them absolute.
   migrateAddColumn(database, 'routes', 'clock_offset_ms', 'INTEGER');
+  // Fixed seconds a segment adds to the key-time schedule independent of
+  // distance/speed — a scheduled pause or gas-stop wait. See Segment.holdSeconds
+  // in pace-engine.ts.
+  migrateAddColumn(database, 'route_segments', 'hold_seconds', 'INTEGER');
 
   database.execSync(`
 

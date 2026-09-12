@@ -183,6 +183,9 @@ const PACE_SEGMENTS: Segment[] = [
   { distance: 1.0, speed: 24, isReset: true, isFree: false },
   // isFree with a speed set — locks the free-overrides-speed branch
   { distance: 0.5, speed: 18, isReset: false, isFree: true },
+  // a scheduled pause: zero distance, no pace requirement, but its 300s
+  // still has to land in the schedule for every mile past it
+  { distance: 0, speed: null, isReset: false, isFree: true, holdSeconds: 300 },
   { distance: 2.0, speed: 36, isReset: true, isFree: false },
 ];
 
@@ -198,7 +201,7 @@ const CROSSED_RESET_CASES: Array<[number, number]> = [
 function emitPaceSegments(): string {
   return PACE_SEGMENTS.map(
     s =>
-      `  { .distance = ${dbl(s.distance)}, .speed = ${dbl(s.speed ?? 0)}, .has_speed = ${boolc(s.speed !== null)}, .is_reset = ${boolc(s.isReset)}, .is_free = ${boolc(s.isFree)} },`
+      `  { .distance = ${dbl(s.distance)}, .speed = ${dbl(s.speed ?? 0)}, .has_speed = ${boolc(s.speed !== null)}, .is_reset = ${boolc(s.isReset)}, .is_free = ${boolc(s.isFree)}, .hold_seconds = ${dbl(s.holdSeconds ?? 0)} },`
   ).join('\n');
 }
 
@@ -321,6 +324,8 @@ const PROTOCOL_ROUTE: Segment[] = [
   { distance: 0.25, speed: null, isReset: false, isFree: true, label: 'Transfer' },
   { distance: 1.0, speed: 24, isReset: true, isFree: false, label: 'Seg 2 (reset)', checkType: 'known' },
   { distance: 2.75, speed: 18.5, isReset: false, isFree: false, checkType: 'gas' },
+  // a scheduled pause at the gas stop — zero distance, no pace, 1260s (21 min) hold
+  { distance: 0, speed: null, isReset: false, isFree: true, holdSeconds: 1260, label: 'Gas pause', checkType: 'gas' },
   { distance: 0.62, speed: 33.1, isReset: true, isFree: false, label: 'Finish', checkType: 'finish' },
 ];
 
@@ -336,7 +341,8 @@ function emitRouteSheetVectors(): string {
     // same constants the C decoder uses.
     const distance = Math.round(s.distance * 1000) / 1000;
     const speed = s.speed !== null ? Math.round(s.speed * 10) / 10 : 0;
-    return `  { .distance = ${dbl(distance)}, .speed = ${dbl(speed)}, .has_speed = ${boolc(s.speed !== null)}, .is_reset = ${boolc(s.isReset)}, .is_free = ${boolc(s.isFree)}, .check_type = ${s.checkType ? CHECK_TYPE_CODES[s.checkType] : 0}, .label = "${s.label ?? ''}" },`;
+    const holdSeconds = Math.round(s.holdSeconds ?? 0);
+    return `  { .distance = ${dbl(distance)}, .speed = ${dbl(speed)}, .has_speed = ${boolc(s.speed !== null)}, .is_reset = ${boolc(s.isReset)}, .is_free = ${boolc(s.isFree)}, .hold_seconds = ${dbl(holdSeconds)}, .check_type = ${s.checkType ? CHECK_TYPE_CODES[s.checkType] : 0}, .label = "${s.label ?? ''}" },`;
   }).join('\n');
   return `
 static const uint8_t route_sheet_payload[] = { ${bytes} };
@@ -348,6 +354,7 @@ typedef struct {
   bool has_speed;
   bool is_reset;
   bool is_free;
+  double hold_seconds;
   uint8_t check_type;
   const char *label;
 } route_sheet_expected_t;
@@ -579,6 +586,7 @@ static const struct {
   bool has_speed;
   bool is_reset;
   bool is_free;
+  double hold_seconds;
 } pace_segment_vectors[] = {
 ${emitPaceSegments()}
 };
@@ -601,10 +609,11 @@ static const struct {
   bool has_speed;
   bool is_reset;
   bool is_free;
+  double hold_seconds;
 } replay_segment_vectors[] = {
 ${REPLAY_SEGMENTS.map(
     s =>
-      `  { .distance = ${dbl(s.distance)}, .speed = ${dbl(s.speed ?? 0)}, .has_speed = ${boolc(s.speed !== null)}, .is_reset = ${boolc(s.isReset)}, .is_free = ${boolc(s.isFree)} },`
+      `  { .distance = ${dbl(s.distance)}, .speed = ${dbl(s.speed ?? 0)}, .has_speed = ${boolc(s.speed !== null)}, .is_reset = ${boolc(s.isReset)}, .is_free = ${boolc(s.isFree)}, .hold_seconds = ${dbl(s.holdSeconds ?? 0)} },`
   ).join('\n')}
 };
 static const size_t replay_segment_count = sizeof(replay_segment_vectors) / sizeof(replay_segment_vectors[0]);

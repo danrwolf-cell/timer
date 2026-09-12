@@ -17,7 +17,9 @@
 extern "C" {
 #endif
 
-#define RS_PROTOCOL_VERSION 0x01
+/* v2: adds hold_seconds (fixed pause/hold time) to each ROUTE_SHEET segment —
+ * see docs/BLE-PROTOCOL.md. No deployed device predates this. */
+#define RS_PROTOCOL_VERSION 0x02
 #define RS_MAX_SEGMENTS 64
 #define RS_MAX_LABEL 23
 

@@ -18,12 +18,16 @@ export const CheckTypeSchema = z
   .nullable();
 
 export const ExtractedSegmentSchema = z.object({
-  distanceMi: z.number().positive(),
+  distanceMi: z.number().nonnegative(),
   speedMph: z.number().positive().nullable(),
   isFree: z.boolean(),
   isReset: z.boolean(),
   label: z.string().nullable(),
   checkType: CheckTypeSchema,
+  // Fixed seconds this segment adds to the key-time schedule, independent of
+  // distanceMi/speedMph — a printed "PAUSE n MIN(S)." or a gas-stop wait.
+  // null when the segment isn't a pause. distanceMi is typically 0 for one.
+  holdSeconds: z.number().nonnegative().nullable(),
 });
 
 export const ExtractedFreeZoneSchema = z.object({

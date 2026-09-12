@@ -25,6 +25,10 @@ typedef struct {
   bool has_speed;
   bool is_reset;
   bool is_free;
+  /* Fixed seconds this segment adds to the key-time schedule, independent of
+   * distance/speed — a scheduled pause or gas-stop wait. Applies regardless
+   * of is_free/has_speed. 0 when unused. */
+  double hold_seconds;
 } pe_segment_t;
 
 /* Mirrors RidePosition. */
