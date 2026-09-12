@@ -50,40 +50,92 @@ type Props = {
 
 type Result = { routeSheet: RouteSheetData; checkpointResults: CheckpointResult[]; allPassed: boolean };
 
-/** One segment's line + tag chips (RESET, PAUSE) for the review list. */
-function describeSegment(s: Segment): { line: string; tags: string[] } {
+/**
+ * One segment's line + tag chips for the review list, written the way the
+ * printed sheet reads it: "<odometer mile>  <event>" — CHANGE TO n MPH,
+ * PAUSE n MIN(S)., GAS AVAILABLE, a named checkpoint. Never the segment's
+ * own length: a rider reads a route sheet as "ride at this MPH until the
+ * odometer reads this," never "this leg is n miles long" — the
+ * segment-length breakdown is an internal bookkeeping detail nobody
+ * printed on the sheet.
+ */
+function describeSegment(s: Segment, odometerEnd: number, isFirst: boolean): { line: string; tags: string[] } {
   const tags: string[] = [];
   if (s.isReset) tags.push('RESET');
-  if (s.holdSeconds) tags.push(`PAUSE ${Math.round(s.holdSeconds / 60)} min`);
 
-  const body =
-    s.isFree || s.speed === null
-      ? `${s.distance.toFixed(2)} mi · free`
-      : `${s.distance.toFixed(2)} mi @ ${s.speed} mph`;
+  let event: string;
+  if (s.holdSeconds) {
+    const min = Math.round(s.holdSeconds / 60);
+    event = `PAUSE ${min} MIN${min === 1 ? '' : 'S'}.`;
+  } else if (s.isFree || s.speed === null) {
+    event = 'FREE';
+  } else if (s.checkType === 'gas') {
+    event = 'GAS AVAILABLE';
+  } else if (s.checkType === 'finish') {
+    event = 'FINISH';
+  } else if (s.checkType === 'known' || s.checkType === 'secret') {
+    event = s.label ? s.label.toUpperCase() : (s.checkType === 'known' ? 'KNOWN CHECK' : 'SECRET CHECK');
+  } else if (isFirst) {
+    event = `START ${s.speed} MPH`;
+  } else {
+    event = `CHANGE TO ${s.speed} MPH`;
+  }
 
-  return { line: s.label ? `${s.label} — ${body}` : body, tags };
+  return { line: `${odometerEnd.toFixed(2)}  ${event}`, tags };
 }
 
 type TimelineRow =
-  | { kind: 'segment'; startMile: number; segmentNumber: number; segment: Segment }
-  | { kind: 'zone'; startMile: number; zone: FtZoneInput };
+  | { kind: 'segment'; startMile: number; odometerEnd: number; segmentNumber: number; segment: Segment }
+  | { kind: 'zone'; startMile: number; odometerStart: number; odometerEnd: number; zone: FtZoneInput };
 
 /**
  * Segments and free zones in one ride-ordered list, the way they actually
  * sit on the course — a free zone isn't its own leg, it's a mile range
  * layered over the segments it spans, so it's positioned by its own start
  * mile among them rather than listed separately.
+ *
+ * Mileage shown throughout is the rider's own trip-odometer reading, not
+ * the engine's internal course-cumulative total: it counts up normally but
+ * restarts to 0 at every isReset segment, exactly like the physical
+ * odometer does at a gas stop (see route-scan-prompt.ts's "mileage
+ * restart" case — isReset means exactly that here, and only that).
+ * `startMile` (internal, never resets) is kept alongside purely to sort
+ * segments and zones into one consistent ride order.
  */
 function buildTimeline(routeSheet: RouteSheetData): TimelineRow[] {
-  let cumulative = 0;
-  const rows: TimelineRow[] = routeSheet.segments.map((segment, i) => {
-    const row: TimelineRow = { kind: 'segment', startMile: cumulative, segmentNumber: i + 1, segment };
+  let cumulative = 0; // internal, course-cumulative — never resets
+  let offset = 0;      // cumulative value at the start of the current odometer epoch
+  const epochs: Array<{ startCumulative: number; offset: number }> = [{ startCumulative: 0, offset: 0 }];
+
+  const segRows: TimelineRow[] = routeSheet.segments.map((segment, i) => {
+    if (segment.isReset) {
+      offset = cumulative;
+      epochs.push({ startCumulative: cumulative, offset });
+    }
+    const startMile = cumulative;
     cumulative += segment.distance;
-    return row;
+    return { kind: 'segment', startMile, odometerEnd: cumulative - offset, segmentNumber: i + 1, segment };
   });
-  for (const zone of routeSheet.freeZones) {
-    rows.push({ kind: 'zone', startMile: zone.start, zone });
+
+  // Odometer reading a given internal course-mile would have shown, using
+  // whichever epoch (restart point) was in effect there.
+  function odometerAt(courseMile: number): number {
+    let applicable = epochs[0];
+    for (const e of epochs) {
+      if (e.startCumulative <= courseMile) applicable = e; else break;
+    }
+    return courseMile - applicable.offset;
   }
+
+  const zoneRows: TimelineRow[] = routeSheet.freeZones.map(zone => ({
+    kind: 'zone',
+    startMile: zone.start,
+    odometerStart: odometerAt(zone.start),
+    odometerEnd: odometerAt(zone.end),
+    zone,
+  }));
+
+  const rows = [...segRows, ...zoneRows];
   // Segments win ties at the same mile — a zone starting exactly on a
   // boundary reads as "starting here, over what follows".
   rows.sort((a, b) => a.startMile - b.startMile || (a.kind === 'segment' ? -1 : 1));
@@ -227,16 +279,18 @@ export function ScanReviewScreen({ navigation, route }: Props) {
             <Text style={styles.sectionLabel}>Segments</Text>
             {buildTimeline(result.routeSheet).map((row, i) => {
               if (row.kind === 'zone') {
+                // Matches how this sheet (and plenty of others) actually
+                // print a free zone: a bare "<start> RESET <end>" pair.
                 return (
                   <View key={`z${i}`} style={styles.zoneRow}>
                     <Text style={styles.zoneLabel}>
-                      FREE ZONE · mile {row.zone.start.toFixed(2)} – {row.zone.end.toFixed(2)}
+                      {row.odometerStart.toFixed(2)}  RESET {row.odometerEnd.toFixed(2)}
                       {row.zone.reason ? ` — ${row.zone.reason}` : ''}
                     </Text>
                   </View>
                 );
               }
-              const { line, tags } = describeSegment(row.segment);
+              const { line, tags } = describeSegment(row.segment, row.odometerEnd, row.segmentNumber === 1);
               return (
                 <View key={`s${i}`} style={styles.listRow}>
                   <Text style={styles.listIndex}>{row.segmentNumber}</Text>
