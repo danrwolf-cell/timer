@@ -16,8 +16,8 @@ describe('2026 Michaux Enduro', () => {
     expect(total).toBeCloseTo(81.40, 2);
   });
 
-  it('has 29 segments and 13 free zones, matching the printed sheet', () => {
-    expect(MICHAUX_2026.segments).toHaveLength(29);
+  it('has 42 segments and 13 free zones (29 printed + 13 check-strategy splits)', () => {
+    expect(MICHAUX_2026.segments).toHaveLength(42);
     expect(MICHAUX_2026.freeZones).toHaveLength(13);
   });
 

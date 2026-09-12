@@ -41,17 +41,23 @@ const pause = (holdSeconds: number, label: string): Segment => ({
 // ---------------------------------------------------------------------------
 // Column 1: mile 0.0 to 29.40 (odometer), KT 9:00 start.
 
+// Check-strategy notes split some of these into extra pieces purely to
+// carry a label at the right mile — same speed on both sides of a split,
+// so distance and key time are unaffected; see michaux-2026.test.ts.
 const COLUMN1: Segment[] = [
-  { distance: 9.30, speed: 18, isReset: false, isFree: false },
-  { distance: 2.30, speed: 23, isReset: false, isFree: false },
+  { distance: 3.00, speed: 18, isReset: false, isFree: false },
+  { distance: 3.30, speed: 18, isReset: false, isFree: false, label: 'Stay on time' }, // 3.0
+  { distance: 3.00, speed: 18, isReset: false, isFree: false, label: 'Chk possible' },  // 6.3
+  { distance: 2.30, speed: 23, isReset: false, isFree: false, label: 'Stay on time' },  // 9.3
   { distance: 0.70, speed: 14, isReset: false, isFree: false },
   { distance: 2.40, speed: 18, isReset: false, isFree: false },
-  { distance: 4.00, speed: 24, isReset: false, isFree: false, label: 'KC', checkType: 'known' },
+  { distance: 4.00, speed: 24, isReset: false, isFree: false, label: 'KC 15 early OK', checkType: 'known' },
   { distance: 2.30, speed: 24, isReset: false, isFree: false },
   pause(600, 'Pause'), // 10 MINS. at mile 21.00
   { distance: 0.90, speed: 24, isReset: false, isFree: false },
   { distance: 4.80, speed: 12, isReset: false, isFree: false },
-  { distance: 2.70, speed: 18, isReset: false, isFree: false, label: 'Gas', checkType: 'gas' },
+  { distance: 0.60, speed: 18, isReset: false, isFree: false, label: 'Stay on time' }, // 27.3
+  { distance: 2.10, speed: 18, isReset: false, isFree: false, label: 'Gas', checkType: 'gas' },
   pause(1260, 'Gas pause'), // 21 MINS. at mile 29.40
 ];
 
@@ -88,22 +94,32 @@ const COL2_OFFSET = 29.40;
 const COLUMN2: Segment[] = [
   // First segment after the restart carries isReset — matches the physical
   // odometer having just been zeroed at the gas stop.
-  { distance: 4.80, speed: 18, isReset: true, isFree: false, label: 'Restart after gas (odo 0.00)' },
-  { distance: 3.60, speed: 36, isReset: false, isFree: false },
+  { distance: 1.80, speed: 18, isReset: true, isFree: false, label: 'Restart after gas (odo 0.00)' },
+  { distance: 2.10, speed: 18, isReset: false, isFree: false, label: 'Stay on time' },   // 1.8
+  { distance: 0.90, speed: 18, isReset: false, isFree: false, label: 'If no chk b4' },   // 3.9
+  { distance: 3.00, speed: 36, isReset: false, isFree: false },
+  { distance: 0.60, speed: 36, isReset: false, isFree: false, label: 'Check out' },      // 7.8
   { distance: 2.60, speed: 18, isReset: false, isFree: false },
   pause(60, 'Pause'), // 1 MIN. at 11.00
   { distance: 2.03, speed: 18, isReset: false, isFree: false },
   pause(60, 'Pause'), // 1 MIN. at 13.03
-  { distance: 6.17, speed: 18, isReset: false, isFree: false },
-  { distance: 7.62, speed: 24, isReset: false, isFree: false },
+  { distance: 0.17, speed: 18, isReset: false, isFree: false },
+  { distance: 3.00, speed: 18, isReset: false, isFree: false, label: 'Check in poss' },  // 13.2
+  { distance: 3.00, speed: 18, isReset: false, isFree: false, label: 'Check out?' },     // 16.2
+  { distance: 5.20, speed: 24, isReset: false, isFree: false },
+  { distance: 2.42, speed: 24, isReset: false, isFree: false, label: 'Check in' },       // 24.4
   pause(60, 'Pause'), // 1 MIN. at 26.82
-  { distance: 6.28, speed: 24, isReset: false, isFree: false },
+  { distance: 1.98, speed: 24, isReset: false, isFree: false },
+  { distance: 4.30, speed: 24, isReset: false, isFree: false, label: 'Check out' },      // 28.8
   pause(180, 'Pause'), // 3 MINS. at 33.10
-  { distance: 2.10, speed: 24, isReset: false, isFree: false },
+  { distance: 2.10, speed: 24, isReset: false, isFree: false, label: 'On time til 36.8' }, // 35.2
   { distance: 1.60, speed: 12, isReset: false, isFree: false },
   { distance: 0.02, speed: 24, isReset: false, isFree: false },
   pause(60, 'Pause'), // 1 MIN. at 36.82
-  { distance: 12.00, speed: 24, isReset: false, isFree: false },
+  { distance: 1.18, speed: 24, isReset: false, isFree: false },
+  { distance: 3.20, speed: 24, isReset: false, isFree: false, label: 'Check in' },       // 38.0
+  { distance: 6.00, speed: 24, isReset: false, isFree: false, label: 'Check out' },      // 41.2
+  { distance: 1.62, speed: 24, isReset: false, isFree: false, label: 'Chk in unlikely' }, // 47.2
   pause(240, 'Pause'), // 4 MINS. at 48.82
   { distance: 3.18, speed: 24, isReset: false, isFree: false, label: 'Finish (OBV CK)', checkType: 'finish' },
 ];
