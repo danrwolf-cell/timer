@@ -12,6 +12,7 @@ import { extractRouteSheetDirect, type ScanProgress } from '../import/route-scan
 import { importRouteSheet } from '../import/import-route';
 import type { RouteSheetData, CheckpointResult } from '../import/route-sheet';
 import type { Segment } from '../engine/pace-engine';
+import type { FtZoneInput } from '../engine/free-territory';
 import type { ScanMimeType } from '../import/route-scan-result';
 
 // Claude's vision pipeline downsamples internally to roughly this size on
@@ -61,6 +62,32 @@ function describeSegment(s: Segment): { line: string; tags: string[] } {
       : `${s.distance.toFixed(2)} mi @ ${s.speed} mph`;
 
   return { line: s.label ? `${s.label} — ${body}` : body, tags };
+}
+
+type TimelineRow =
+  | { kind: 'segment'; startMile: number; segmentNumber: number; segment: Segment }
+  | { kind: 'zone'; startMile: number; zone: FtZoneInput };
+
+/**
+ * Segments and free zones in one ride-ordered list, the way they actually
+ * sit on the course — a free zone isn't its own leg, it's a mile range
+ * layered over the segments it spans, so it's positioned by its own start
+ * mile among them rather than listed separately.
+ */
+function buildTimeline(routeSheet: RouteSheetData): TimelineRow[] {
+  let cumulative = 0;
+  const rows: TimelineRow[] = routeSheet.segments.map((segment, i) => {
+    const row: TimelineRow = { kind: 'segment', startMile: cumulative, segmentNumber: i + 1, segment };
+    cumulative += segment.distance;
+    return row;
+  });
+  for (const zone of routeSheet.freeZones) {
+    rows.push({ kind: 'zone', startMile: zone.start, zone });
+  }
+  // Segments win ties at the same mile — a zone starting exactly on a
+  // boundary reads as "starting here, over what follows".
+  rows.sort((a, b) => a.startMile - b.startMile || (a.kind === 'segment' ? -1 : 1));
+  return rows;
 }
 
 // Lands here straight from the camera or the file picker. Extraction starts
@@ -198,11 +225,21 @@ export function ScanReviewScreen({ navigation, route }: Props) {
             </Text>
 
             <Text style={styles.sectionLabel}>Segments</Text>
-            {result.routeSheet.segments.map((s, i) => {
-              const { line, tags } = describeSegment(s);
+            {buildTimeline(result.routeSheet).map((row, i) => {
+              if (row.kind === 'zone') {
+                return (
+                  <View key={`z${i}`} style={styles.zoneRow}>
+                    <Text style={styles.zoneLabel}>
+                      FREE ZONE · mile {row.zone.start.toFixed(2)} – {row.zone.end.toFixed(2)}
+                      {row.zone.reason ? ` — ${row.zone.reason}` : ''}
+                    </Text>
+                  </View>
+                );
+              }
+              const { line, tags } = describeSegment(row.segment);
               return (
-                <View key={i} style={styles.listRow}>
-                  <Text style={styles.listIndex}>{i + 1}</Text>
+                <View key={`s${i}`} style={styles.listRow}>
+                  <Text style={styles.listIndex}>{row.segmentNumber}</Text>
                   <View style={styles.checkInfo}>
                     <Text style={styles.checkLabel}>{line}</Text>
                     {tags.length > 0 && (
@@ -216,23 +253,6 @@ export function ScanReviewScreen({ navigation, route }: Props) {
                 </View>
               );
             })}
-
-            <Text style={styles.sectionLabel}>Free Zones</Text>
-            {result.routeSheet.freeZones.length === 0 ? (
-              <Text style={styles.emptyText}>None</Text>
-            ) : (
-              result.routeSheet.freeZones.map((z, i) => (
-                <View key={i} style={styles.listRow}>
-                  <Text style={styles.listIndex}>{i + 1}</Text>
-                  <View style={styles.checkInfo}>
-                    <Text style={styles.checkLabel}>
-                      mile {z.start.toFixed(2)} – {z.end.toFixed(2)}
-                    </Text>
-                    {z.reason && <Text style={styles.checkDeltaMuted}>{z.reason}</Text>}
-                  </View>
-                </View>
-              ))
-            )}
 
             <Text style={styles.sectionLabel}>Checkpoints</Text>
             {result.checkpointResults.map((r, i) => (
@@ -300,16 +320,22 @@ const styles = StyleSheet.create({
   checkInfo: { flex: 1 },
   checkLabel: { color: C.text, fontSize: 14 },
   checkDelta: { color: C.fail, fontSize: 12, marginTop: 2 },
-  checkDeltaMuted: { color: C.muted, fontSize: 12, marginTop: 2 },
   listRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 8, gap: 10 },
   listIndex: { color: C.muted, fontSize: 13, width: 18, fontVariant: ['tabular-nums'] },
-  emptyText: { color: C.muted, fontSize: 13, marginBottom: 8 },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
   tag: {
     color: C.accent, fontSize: 10, fontWeight: '700', letterSpacing: 0.5,
     borderWidth: 1, borderColor: C.accent, borderRadius: 4,
     paddingHorizontal: 6, paddingVertical: 2, overflow: 'hidden',
   },
+  // Free zones sit inline in the same list as segments (see buildTimeline) —
+  // deliberately un-numbered and quieter than a segment row, since a zone
+  // is a mile-range annotation layered over the ride, not its own leg.
+  zoneRow: {
+    marginLeft: 28, marginBottom: 8, paddingLeft: 10,
+    borderLeftWidth: 2, borderLeftColor: C.accent,
+  },
+  zoneLabel: { color: C.muted, fontSize: 12, fontStyle: 'italic' },
   summary: { fontSize: 15, fontWeight: '700', marginTop: 12, marginBottom: 16 },
   saveButton: { backgroundColor: C.accent, padding: 16, borderRadius: 10, alignItems: 'center' },
   saveButtonText: { color: '#000', fontWeight: '800', fontSize: 16 },
