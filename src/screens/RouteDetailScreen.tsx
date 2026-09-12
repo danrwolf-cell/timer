@@ -35,6 +35,48 @@ type EditableZone = {
   reason: string;
 };
 
+type TimelineRow =
+  | { kind: 'segment'; segment: Segment; index: number; rowMiles: number; rowKt: number }
+  | { kind: 'zone'; zone: FtZoneInput };
+
+/**
+ * Segments and resets in one ride-ordered list, the way they sit on the
+ * course — a reset isn't its own leg, it's a mile range layered over the
+ * segments it spans, merged in by mile rather than listed separately.
+ * Also computes each segment's own odometer mile (resets to 0 at an
+ * isReset segment, like the physical trip meter at a gas stop) and running
+ * key time, the same walk the old two-section render did.
+ */
+function buildTimeline(segments: Segment[], freeZones: FtZoneInput[]): TimelineRow[] {
+  let cumulative = 0;   // internal course-cumulative, never resets — for merging zones by position
+  let runningMiles = 0; // odometer-style, resets at isReset
+  let ktSeconds = 0;
+  const zonesByStart = [...freeZones].sort((a, b) => a.start - b.start);
+  let zoneIdx = 0;
+  const rows: TimelineRow[] = [];
+
+  segments.forEach((seg, i) => {
+    while (zoneIdx < zonesByStart.length && zonesByStart[zoneIdx].start <= cumulative) {
+      rows.push({ kind: 'zone', zone: zonesByStart[zoneIdx] });
+      zoneIdx++;
+    }
+    if (seg.isReset) runningMiles = 0;
+    const rowMiles = runningMiles;
+    const rowKt = ktSeconds;
+    runningMiles += seg.distance;
+    cumulative += seg.distance;
+    if (!seg.isFree && seg.speed !== null) {
+      ktSeconds += (seg.distance / seg.speed) * 3600;
+    }
+    rows.push({ kind: 'segment', segment: seg, index: i, rowMiles, rowKt });
+  });
+  while (zoneIdx < zonesByStart.length) {
+    rows.push({ kind: 'zone', zone: zonesByStart[zoneIdx] });
+    zoneIdx++;
+  }
+  return rows;
+}
+
 function toEditable(s: Segment): EditableSegment {
   return {
     distanceText: String(s.distance),
@@ -150,12 +192,6 @@ export function RouteDetailScreen({ navigation, route }: Props) {
   }
 
   const totalMiles = segments.reduce((sum, s) => sum + s.distance, 0);
-  // Route-sheet style rows: each shows the boundary where the speed change
-  // happens — odometer mileage at that point (re-zeroed by resets), the new
-  // speed, and the key time there. Free segments add no key time, matching
-  // the pace engine.
-  let runningMiles = 0;
-  let ktSeconds = 0;
 
   // KT as clock time when the official key time is set; elapsed time otherwise.
   function formatKt(seconds: number): string {
@@ -193,20 +229,28 @@ export function RouteDetailScreen({ navigation, route }: Props) {
             </TouchableOpacity>
 
             <Text style={styles.sectionLabel}>Segments</Text>
-            {segments.map((seg, i) => {
-              // A reset-to-zero checkpoint (segment RESET flag): the odometer
-              // zeroes there and re-accumulates. Sheet resets (the Resets
-              // section) jump forward instead and don't touch this counter.
-              if (seg.isReset) runningMiles = 0;
-              const rowMiles = runningMiles;
-              const rowKt = ktSeconds;
-              runningMiles += seg.distance;
-              if (!seg.isFree && seg.speed !== null) {
-                ktSeconds += (seg.distance / seg.speed) * 3600;
+            {buildTimeline(segments, freeZones).map((row, i) => {
+              if (row.kind === 'zone') {
+                const z = row.zone;
+                return (
+                  <View key={`z${i}`} style={styles.segmentRow}>
+                    <Text style={styles.segmentIndex}>R</Text>
+                    <View style={styles.segmentInfo}>
+                      <Text style={styles.segmentMain}>
+                        {z.start.toFixed(1)} → {z.end.toFixed(1)}
+                      </Text>
+                      {z.reason ? <Text style={styles.segmentLabel}>{z.reason}</Text> : null}
+                      <Text style={styles.segmentCumulative}>
+                        odometer moves up {(z.end - z.start).toFixed(2)} mi
+                      </Text>
+                    </View>
+                  </View>
+                );
               }
+              const { segment: seg, index: i2, rowMiles, rowKt } = row;
               return (
-                <View key={i} style={styles.segmentRow}>
-                  <Text style={styles.segmentIndex}>{i + 1}</Text>
+                <View key={`s${i}`} style={styles.segmentRow}>
+                  <Text style={styles.segmentIndex}>{i2 + 1}</Text>
                   <View style={styles.segmentInfo}>
                     <View style={styles.sheetRow}>
                       <Text style={styles.sheetMiles}>{rowMiles.toFixed(1)}</Text>
@@ -226,26 +270,6 @@ export function RouteDetailScreen({ navigation, route }: Props) {
                 </View>
               );
             })}
-
-            {freeZones.length > 0 && (
-              <>
-                <Text style={styles.sectionLabel}>Resets</Text>
-                {freeZones.map((z, i) => (
-                  <View key={i} style={styles.segmentRow}>
-                    <Text style={styles.segmentIndex}>R</Text>
-                    <View style={styles.segmentInfo}>
-                      <Text style={styles.segmentMain}>
-                        {z.start.toFixed(1)} → {z.end.toFixed(1)}
-                      </Text>
-                      {z.reason ? <Text style={styles.segmentLabel}>{z.reason}</Text> : null}
-                      <Text style={styles.segmentCumulative}>
-                        odometer moves up {(z.end - z.start).toFixed(2)} mi
-                      </Text>
-                    </View>
-                  </View>
-                ))}
-              </>
-            )}
 
             <TouchableOpacity style={styles.editButton} onPress={startEditing}>
               <Text style={styles.editButtonText}>Edit Route</Text>
