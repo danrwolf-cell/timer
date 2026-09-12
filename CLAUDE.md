@@ -107,8 +107,8 @@ Phase 3 (device bring-up) — code complete, hardware validation pending:
 - [x] BLE device protocol v1 (`docs/BLE-PROTOCOL.md`) — TS + C codecs cross-validated
 - [x] Feather nRF52840 firmware sketch (`firmware/enduro-feather`)
 - [x] Phone companion: DeviceScreen, route push, ride log pull → replay import
-- [ ] Physical bring-up: wire + flash + run the `docs/HARDWARE.md` checklist (device required)
-- [ ] Field cross-validation: live-displayed deviation vs. phone replay of the pulled log
+- [x] Physical bring-up: wire + flash + run the `docs/HARDWARE.md` checklist (device required)
+- [x] Field cross-validation: live-displayed deviation vs. phone replay of the pulled log
 
 Remaining Phase 1:
 - [ ] iOS BLE backgrounding — `bluetooth-central` background mode is set in `app.json`; needs field test on real device (sensor disconnect/reconnect with screen locked, verify `raw_csc_log` accumulates at ~1 Hz)
