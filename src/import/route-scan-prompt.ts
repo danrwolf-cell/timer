@@ -17,15 +17,20 @@ A ride is a sequence of timed segments, each ridden at a required average speed 
 
 Each segment is (distance, speed): the distance is that segment's OWN length in miles, not a cumulative/running total. Segments accumulate speed changes in ride order.
 
-**Mileage restarts at gas are bookkeeping only, not a break in the ride.** Many sheets restart their printed mileage column at 0.00 after a gas stop (the rider physically resets their trip odometer there). Do NOT start a new segments array or treat this as free time — keep appending segments to the SAME list, using each segment's own (now odometer-relative) length. Mark ONLY the segment immediately after such a restart with isReset: true — this is the one case isReset applies to. Do not set isReset on anything else, even if the sheet prints the word "RESET" elsewhere (see Free zones below — that is a different, unrelated use of the same word).
-
 Almost never set isFree or speedMph: null on a segment. That means "no pace requirement for this entire segment" and is rare — most sheets never use it. A stretch of no-secret-check protection (see below) is NOT the same thing and must not be marked isFree.
 
 Set checkType on a segment to describe the event at the END of that segment: "gas" at a gas stop, "finish" at the final segment, "known" or "secret" at a named/lettered checkpoint if the sheet distinguishes them, otherwise null.
 
+## "RESET" means two different things — tell them apart by the two numbers
+
+Many sheets print "RESET" between two mileage numbers with NO connecting word at all, e.g. "6.40 RESET 8.56" or "28.82 RESET 32.80" — don't drop these just because they don't literally contain "TO"; this bare two-number form is the common case on plenty of sheets, not an exception. Compare the second number to the first:
+
+- **Second number BIGGER than the first (the normal case): a free zone.** This is the exact same no-check-zone construct as "RESET ... TO ...", a bare "... TO ...", a "FREE TIME" list, or "Start Free Time" / "End Free Time" elsewhere on a sheet — just this club's shorthand for it, with "TO" omitted. See Free zones below for how to extract it.
+- **Second number SMALLER than the first (almost always "RESET 0.00", right at a gas stop): a mileage restart, not a break in the ride.** The rider physically resets their trip odometer there; the printed mileage column restarts counting from that point. Do NOT start a new segments array or treat this as free time — keep appending segments to the SAME list, using each segment's own (now odometer-relative) length. Mark ONLY the segment immediately after this kind of restart with isReset: true — this is the one case isReset applies to. Do not set isReset on anything else, even a "RESET ... TO ..." free zone — that's the unrelated, far more common use of the same word, covered above.
+
 ## Free zones — separate from segments entirely
 
-Route sheets mark stretches where a secret/surprise check is not allowed — commonly printed as "RESET ... TO ...", a bare "... TO ...", a "FREE TIME" list, or "Start Free Time" / "End Free Time". All of these mean the same thing: a no-check zone. Mileage and the key-time clock both keep accruing completely normally through it — nothing about the pace math changes. Extract every one of these as a {startMi, endMi} pair in CUMULATIVE course miles (the running total of every segment so far, not the sheet's possibly-restarted mileage column) — separate from the segments list, not encoded as isFree.
+Route sheets mark stretches where a secret/surprise check is not allowed — see the "RESET" forms above, plus a bare "... TO ...", a "FREE TIME" list, or "Start Free Time" / "End Free Time". All of these mean the same thing: a no-check zone. Mileage and the key-time clock both keep accruing completely normally through it — nothing about the pace math changes. Extract every one of these as a {startMi, endMi} pair in CUMULATIVE course miles (the running total of every segment so far, not the sheet's possibly-restarted mileage column) — separate from the segments list, not encoded as isFree.
 
 A gas stop typically has its own free zone too (protection approaching and at the pump) — extract it the same way.
 
