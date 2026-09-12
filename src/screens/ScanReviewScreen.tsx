@@ -91,54 +91,48 @@ type TimelineRow =
 /**
  * Segments and free zones in one ride-ordered list, the way they actually
  * sit on the course — a free zone isn't its own leg, it's a mile range
- * layered over the segments it spans, so it's positioned by its own start
- * mile among them rather than listed separately.
+ * layered over the segments it spans, so it's merged in among them rather
+ * than listed separately.
  *
  * Mileage shown throughout is the rider's own trip-odometer reading, not
  * the engine's internal course-cumulative total: it counts up normally but
  * restarts to 0 at every isReset segment, exactly like the physical
  * odometer does at a gas stop (see route-scan-prompt.ts's "mileage
  * restart" case — isReset means exactly that here, and only that).
- * `startMile` (internal, never resets) is kept alongside purely to sort
- * segments and zones into one consistent ride order.
+ *
+ * Deliberately NOT a generic sort: segments come out of extraction already
+ * in ride order (the one thing the prompt guarantees), and several
+ * segments legitimately land on the same internal mile — a PAUSE has zero
+ * distance, so it shares its mile exactly with the segment right after it.
+ * A comparator can't break that tie reliably, and re-sorting on it visibly
+ * scrambled the list. Walking segments in their given order and merging
+ * zones in by mile as we go can't reorder a segment relative to another
+ * segment, so it can't have that bug.
  */
 function buildTimeline(routeSheet: RouteSheetData): TimelineRow[] {
   let cumulative = 0; // internal, course-cumulative — never resets
   let offset = 0;      // cumulative value at the start of the current odometer epoch
-  const epochs: Array<{ startCumulative: number; offset: number }> = [{ startCumulative: 0, offset: 0 }];
+  const rows: TimelineRow[] = [];
 
-  const segRows: TimelineRow[] = routeSheet.segments.map((segment, i) => {
-    if (segment.isReset) {
-      offset = cumulative;
-      epochs.push({ startCumulative: cumulative, offset });
-    }
+  const zonesByStart = [...routeSheet.freeZones].sort((a, b) => a.start - b.start);
+  let zoneIdx = 0;
+  const pushZone = (zone: FtZoneInput) =>
+    rows.push({ kind: 'zone', startMile: zone.start, odometerStart: zone.start - offset, odometerEnd: zone.end - offset, zone });
+
+  routeSheet.segments.forEach((segment, i) => {
     const startMile = cumulative;
-    cumulative += segment.distance;
-    return { kind: 'segment', startMile, odometerEnd: cumulative - offset, segmentNumber: i + 1, segment };
-  });
-
-  // Odometer reading a given internal course-mile would have shown, using
-  // whichever epoch (restart point) was in effect there.
-  function odometerAt(courseMile: number): number {
-    let applicable = epochs[0];
-    for (const e of epochs) {
-      if (e.startCumulative <= courseMile) applicable = e; else break;
+    while (zoneIdx < zonesByStart.length && zonesByStart[zoneIdx].start <= startMile) {
+      pushZone(zonesByStart[zoneIdx]);
+      zoneIdx++;
     }
-    return courseMile - applicable.offset;
+    if (segment.isReset) offset = cumulative;
+    cumulative += segment.distance;
+    rows.push({ kind: 'segment', startMile, odometerEnd: cumulative - offset, segmentNumber: i + 1, segment });
+  });
+  while (zoneIdx < zonesByStart.length) {
+    pushZone(zonesByStart[zoneIdx]);
+    zoneIdx++;
   }
-
-  const zoneRows: TimelineRow[] = routeSheet.freeZones.map(zone => ({
-    kind: 'zone',
-    startMile: zone.start,
-    odometerStart: odometerAt(zone.start),
-    odometerEnd: odometerAt(zone.end),
-    zone,
-  }));
-
-  const rows = [...segRows, ...zoneRows];
-  // Segments win ties at the same mile — a zone starting exactly on a
-  // boundary reads as "starting here, over what follows".
-  rows.sort((a, b) => a.startMile - b.startMile || (a.kind === 'segment' ? -1 : 1));
   return rows;
 }
 

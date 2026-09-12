@@ -50,6 +50,8 @@ A gas stop typically has its own free zone too (protection approaching and at th
 
 For every printed key time on the sheet, record: a short label, the CUMULATIVE course mile it falls at (running total of segments so far), and the clock time exactly as printed — e.g. "9:23" or "1:23" — with no AM/PM marker added, even if you can infer one. Include the very first key time (the start, e.g. "9:00") as startClockTime, separately from the checkpoints list. Every speed change's key time, every gas stop, and the finish should all appear as checkpoints.
 
+**Exception — a continuation column's own opening KT is not a new checkpoint.** When you're handling the "column 2 continues column 1" case above, that column's first line (e.g. "0.00 18MPH KT 11:10") sits at the EXACT SAME mile as the checkpoint that ended column 1 (the gas/pause stop) — mileage doesn't move during a pause. It's re-establishing the clock after the restart, playing the same role startClockTime plays at the very start of the ride, not a second scored event at that mile: a checkpoint's position is only a mile number, so it has no way to represent "before the pause" vs "after the pause" at that same mile, and creating one here will always come out wrong by exactly the pause's length. Fold its clock time into your bookkeeping (it's what confirms the pause duration you extracted is right) but do not add it to the checkpoints list.
+
 ## Output
 
 - routeName: a short descriptive name (include the event name and year if printed).
