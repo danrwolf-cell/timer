@@ -37,7 +37,7 @@ type EditableZone = {
 
 type TimelineRow =
   | { kind: 'segment'; segment: Segment; index: number; rowMiles: number; rowKt: number }
-  | { kind: 'zone'; zone: FtZoneInput };
+  | { kind: 'zone'; zone: FtZoneInput; rowStart: number; rowEnd: number };
 
 /**
  * Segments and resets in one ride-ordered list, the way they sit on the
@@ -46,21 +46,35 @@ type TimelineRow =
  * Also computes each segment's own odometer mile (resets to 0 at an
  * isReset segment, like the physical trip meter at a gas stop) and running
  * key time, the same walk the old two-section render did.
+ *
+ * `freeZones` are stored in raw, never-resetting course-cumulative miles
+ * (same as the engine uses internally) — a zone after the gas stop reads
+ * like mile 30+, not the small number the trip odometer actually shows
+ * there. `rowStart`/`rowEnd` below convert to the same odometer mile the
+ * segment rows show, using whatever offset was active at the zone's own
+ * position, so a zone in the second half of the day doesn't read wrong
+ * relative to the segments around it.
  */
 function buildTimeline(segments: Segment[], freeZones: FtZoneInput[]): TimelineRow[] {
   let cumulative = 0;   // internal course-cumulative, never resets — for merging zones by position
   let runningMiles = 0; // odometer-style, resets at isReset
+  let offset = 0;        // cumulative value at the start of the current odometer epoch
   let ktSeconds = 0;
   const zonesByStart = [...freeZones].sort((a, b) => a.start - b.start);
   let zoneIdx = 0;
   const rows: TimelineRow[] = [];
+  const pushZone = (zone: FtZoneInput) =>
+    rows.push({ kind: 'zone', zone, rowStart: zone.start - offset, rowEnd: zone.end - offset });
 
   segments.forEach((seg, i) => {
     while (zoneIdx < zonesByStart.length && zonesByStart[zoneIdx].start <= cumulative) {
-      rows.push({ kind: 'zone', zone: zonesByStart[zoneIdx] });
+      pushZone(zonesByStart[zoneIdx]);
       zoneIdx++;
     }
-    if (seg.isReset) runningMiles = 0;
+    if (seg.isReset) {
+      runningMiles = 0;
+      offset = cumulative;
+    }
     const rowMiles = runningMiles;
     const rowKt = ktSeconds;
     runningMiles += seg.distance;
@@ -71,7 +85,7 @@ function buildTimeline(segments: Segment[], freeZones: FtZoneInput[]): TimelineR
     rows.push({ kind: 'segment', segment: seg, index: i, rowMiles, rowKt });
   });
   while (zoneIdx < zonesByStart.length) {
-    rows.push({ kind: 'zone', zone: zonesByStart[zoneIdx] });
+    pushZone(zonesByStart[zoneIdx]);
     zoneIdx++;
   }
   return rows;
@@ -237,7 +251,7 @@ export function RouteDetailScreen({ navigation, route }: Props) {
                     <Text style={styles.segmentIndex}>R</Text>
                     <View style={styles.segmentInfo}>
                       <Text style={styles.segmentMain}>
-                        {z.start.toFixed(1)} → {z.end.toFixed(1)}
+                        {row.rowStart.toFixed(1)} → {row.rowEnd.toFixed(1)}
                       </Text>
                       {z.reason ? <Text style={styles.segmentLabel}>{z.reason}</Text> : null}
                       <Text style={styles.segmentCumulative}>

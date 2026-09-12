@@ -5,6 +5,8 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { initSchema } from './src/db/schema';
+import { seedRouteSheetOnce } from './src/import/import-route';
+import { MICHAUX_2026 } from './src/import/michaux-2026';
 import type { RootStackParamList, TabParamList } from './src/screens/types';
 import { RouteLibraryScreen } from './src/screens/RouteLibraryScreen';
 import { PostRideScreen } from './src/screens/PostRideScreen';
@@ -40,6 +42,9 @@ function Tabs() {
 export default function App() {
   useEffect(() => {
     initSchema();
+    // Scanner-credit stopgap: just show up in the library, once, rather
+    // than being a menu action to remember. No-ops on every later launch.
+    seedRouteSheetOnce(MICHAUX_2026);
   }, []);
 
   return (

@@ -11,8 +11,6 @@ import * as DocumentPicker from 'expo-document-picker';
 import { listRoutes, insertRoute, deleteRoute, replaceSegments, type RouteRow } from '../db/queries';
 import type { Segment } from '../engine/pace-engine';
 import type { ScanMimeType } from '../import/route-scan-result';
-import { importRouteSheet } from '../import/import-route';
-import { MICHAUX_2026 } from '../import/michaux-2026';
 
 type Props = {
   navigation: CompositeNavigationProp<
@@ -97,16 +95,6 @@ export function RouteLibraryScreen({ navigation }: Props) {
     navigation.navigate('ScanReview', { uri: asset.uri, mimeType, label: asset.name ?? 'File' });
   }
 
-  // Stopgap for when the scanner isn't available (out of API credit, no
-  // connection) — hand-transcribed and checkKeyTimes-verified in
-  // michaux-2026.test.ts, same trust gate as a scan. Pull this button once
-  // the scanner covers it again; the data file stays as a parser vector,
-  // same as beehive-2026.ts.
-  function importMichaux2026() {
-    importRouteSheet(MICHAUX_2026);
-    setRoutes(listRoutes());
-  }
-
   function confirmDelete(route: RouteRow) {
     Alert.alert('Delete route', `Delete "${route.name}"?`, [
       { text: 'Cancel', style: 'cancel' },
@@ -176,16 +164,6 @@ export function RouteLibraryScreen({ navigation }: Props) {
             }}
           >
             <Text style={styles.newMenuText}>Scan</Text>
-          </TouchableOpacity>
-          <View style={styles.newMenuDivider} />
-          <TouchableOpacity
-            style={styles.newMenuItem}
-            onPress={() => {
-              setShowNewMenu(false);
-              importMichaux2026();
-            }}
-          >
-            <Text style={styles.newMenuText}>Michaux 2026</Text>
           </TouchableOpacity>
         </View>
       )}
