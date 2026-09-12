@@ -11,6 +11,7 @@ import { getApiKey } from '../import/api-key-store';
 import { extractRouteSheetDirect, type ScanProgress } from '../import/route-scan-direct';
 import { importRouteSheet } from '../import/import-route';
 import type { RouteSheetData, CheckpointResult } from '../import/route-sheet';
+import type { Segment } from '../engine/pace-engine';
 import type { ScanMimeType } from '../import/route-scan-result';
 
 // Claude's vision pipeline downsamples internally to roughly this size on
@@ -47,6 +48,20 @@ type Props = {
 };
 
 type Result = { routeSheet: RouteSheetData; checkpointResults: CheckpointResult[]; allPassed: boolean };
+
+/** One segment's line + tag chips (RESET, PAUSE) for the review list. */
+function describeSegment(s: Segment): { line: string; tags: string[] } {
+  const tags: string[] = [];
+  if (s.isReset) tags.push('RESET');
+  if (s.holdSeconds) tags.push(`PAUSE ${Math.round(s.holdSeconds / 60)} min`);
+
+  const body =
+    s.isFree || s.speed === null
+      ? `${s.distance.toFixed(2)} mi · free`
+      : `${s.distance.toFixed(2)} mi @ ${s.speed} mph`;
+
+  return { line: s.label ? `${s.label} — ${body}` : body, tags };
+}
 
 // Lands here straight from the camera or the file picker. Extraction starts
 // immediately; the screen only exists to show progress, the checkpoint
@@ -182,6 +197,43 @@ export function ScanReviewScreen({ navigation, route }: Props) {
               {result.routeSheet.segments.length} segments · {result.routeSheet.freeZones.length} free zones
             </Text>
 
+            <Text style={styles.sectionLabel}>Segments</Text>
+            {result.routeSheet.segments.map((s, i) => {
+              const { line, tags } = describeSegment(s);
+              return (
+                <View key={i} style={styles.listRow}>
+                  <Text style={styles.listIndex}>{i + 1}</Text>
+                  <View style={styles.checkInfo}>
+                    <Text style={styles.checkLabel}>{line}</Text>
+                    {tags.length > 0 && (
+                      <View style={styles.tagRow}>
+                        {tags.map(t => (
+                          <Text key={t} style={styles.tag}>{t}</Text>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                </View>
+              );
+            })}
+
+            <Text style={styles.sectionLabel}>Free Zones</Text>
+            {result.routeSheet.freeZones.length === 0 ? (
+              <Text style={styles.emptyText}>None</Text>
+            ) : (
+              result.routeSheet.freeZones.map((z, i) => (
+                <View key={i} style={styles.listRow}>
+                  <Text style={styles.listIndex}>{i + 1}</Text>
+                  <View style={styles.checkInfo}>
+                    <Text style={styles.checkLabel}>
+                      mile {z.start.toFixed(2)} – {z.end.toFixed(2)}
+                    </Text>
+                    {z.reason && <Text style={styles.checkDeltaMuted}>{z.reason}</Text>}
+                  </View>
+                </View>
+              ))
+            )}
+
             <Text style={styles.sectionLabel}>Checkpoints</Text>
             {result.checkpointResults.map((r, i) => (
               <View key={i} style={styles.checkRow}>
@@ -248,6 +300,16 @@ const styles = StyleSheet.create({
   checkInfo: { flex: 1 },
   checkLabel: { color: C.text, fontSize: 14 },
   checkDelta: { color: C.fail, fontSize: 12, marginTop: 2 },
+  checkDeltaMuted: { color: C.muted, fontSize: 12, marginTop: 2 },
+  listRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 8, gap: 10 },
+  listIndex: { color: C.muted, fontSize: 13, width: 18, fontVariant: ['tabular-nums'] },
+  emptyText: { color: C.muted, fontSize: 13, marginBottom: 8 },
+  tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
+  tag: {
+    color: C.accent, fontSize: 10, fontWeight: '700', letterSpacing: 0.5,
+    borderWidth: 1, borderColor: C.accent, borderRadius: 4,
+    paddingHorizontal: 6, paddingVertical: 2, overflow: 'hidden',
+  },
   summary: { fontSize: 15, fontWeight: '700', marginTop: 12, marginBottom: 16 },
   saveButton: { backgroundColor: C.accent, padding: 16, borderRadius: 10, alignItems: 'center' },
   saveButtonText: { color: '#000', fontWeight: '800', fontSize: 16 },
