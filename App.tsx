@@ -1,10 +1,11 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { initSchema } from './src/db/schema';
+import { prepareDb, seedPreviewData } from './src/db/open-db';
 import type { RootStackParamList, TabParamList } from './src/screens/types';
 import { RouteLibraryScreen } from './src/screens/RouteLibraryScreen';
 import { PostRideScreen } from './src/screens/PostRideScreen';
@@ -38,9 +39,18 @@ function Tabs() {
 }
 
 export default function App() {
+  // Native resolves immediately; the web preview has to load sql.js first.
+  const [dbReady, setDbReady] = useState(false);
+
   useEffect(() => {
-    initSchema();
+    prepareDb().then(() => {
+      initSchema();
+      seedPreviewData();
+      setDbReady(true);
+    });
   }, []);
+
+  if (!dbReady) return null;
 
   return (
     <SafeAreaProvider>

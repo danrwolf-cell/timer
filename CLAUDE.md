@@ -60,6 +60,7 @@ If you change a golden-reference TS module: `make -C firmware/test vectors && ma
 | `firmware/core/` | Pure C golden-reference port: `pace_engine`, `csc_parser`, `route_sheet` codec. Doubles as Arduino library `EnduroCore`. |
 | `firmware/test/` | Vector generator (TS → `vectors.h`) + host C test runner. `make` runs it; `make vectors` regenerates. |
 | `firmware/enduro-feather/` | Arduino sketch for the Feather nRF52840: display, dual-role BLE, flash persistence. |
+| `src/db/open-db.ts`, `open-db.web.ts` | DB open + preview seeding. Native uses expo-sqlite. The web build (`npm run web:preview`, design work only) uses an in-memory `sql.js` adapter seeded with the Beehive sheets, because expo-sqlite's web sync API times out on writes. `src/ble/ble-instance.web.ts` stubs BLE the same way. `scripts/web-preview-proxy.js` adds the COOP/COEP headers and serves the sql.js wasm. Not for real data. |
 | `docs/BUILD-PLAN.md` | Authoritative product strategy, phase structure, and priority queue. Read this before planning any work. |
 | `docs/BLE-PROTOCOL.md` | Wire format phone↔device (v1): UUIDs, framing, CRC. Change TS+C codecs together. |
 | `docs/HARDWARE.md` | Wiring (5 jumpers), flashing, bring-up checklist for the physical prototype. |
