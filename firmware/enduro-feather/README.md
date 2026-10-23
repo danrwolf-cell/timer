@@ -40,7 +40,11 @@ copy `firmware/core` into your sketchbook `libraries/` folder as `EnduroCore`.
 ## What it does
 
 - **Central → speed sensor**: scans for the CSC service (0x1816), connects to
-  the first sensor found, subscribes to 0x2A5B. Auto-rescans on disconnect.
+  the first sensor found, subscribes to 0x2A5B. Auto-rescans on disconnect,
+  plus a watchdog (`superviseSensorLink`) that cancels a connect attempt stuck
+  for 8 s and restarts a scanner that has gone silent for 15 s — Bluefruit
+  only restarts the scan after an *established* link drops, so a sensor that
+  wakes briefly and sleeps again mid-connect would otherwise strand it.
   Every notification while riding is captured raw (including null-update
   edge cases), same as the phone's `ble-manager.ts`.
 - **Peripheral → phone**: advertises as `Enduro-XXXX` with the custom service

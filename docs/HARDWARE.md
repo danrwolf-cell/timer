@@ -83,6 +83,14 @@ reset button to enter the UF2 bootloader.
    The display should show `SENSOR LOST`, reconnect by itself, and distance
    must continue without a jump (power-cycle re-baseline, not a rollover).
 
+7. **Sensor sleep/wake**: connect, then leave the wheel still until the hub
+   sleeps (serial: `[csc] disconnected, reason 0x13` or `0x08`). Wait a few
+   minutes, then spin the wheel. The header should return to `SENSOR OK`
+   without touching the Feather. Also try spinning for only a second or two
+   and stopping, repeatedly: a hub that wakes briefly can leave a connect
+   attempt stranded. Look for `[csc] watchdog:` lines — they mean the
+   recovery path fired.
+
 ## Known prototype limits
 
 - Ride log is RAM-only (~2 h at 1 Hz): pull it before powering off.

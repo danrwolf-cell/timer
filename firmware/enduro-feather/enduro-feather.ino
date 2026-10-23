@@ -344,7 +344,27 @@ static bool scanFirstSighting(const uint8_t *addr) {
   return true;  // table full: caller filters
 }
 
+// Sensor-link supervision. Bluefruit only restarts the scanner when a
+// connection that actually existed drops (BLEScanner.cpp, DISCONNECTED case
+// gated on its connection mask). Anything that goes wrong between "saw the
+// sensor advertise" and "link established" leaves the scanner dead with no
+// event to bring it back:
+//   - connect() is refused, or
+//   - connect() is accepted, then the sensor stops advertising before the link
+//     forms (a sleeping hub wakes briefly, then sleeps again). The scan timeout
+//     is 0, so the SoftDevice stays in "initiating" forever on that address and
+//     never reports a failure.
+// A hub that wakes later on a different address, or only for a short window,
+// is then never found again until the Feather is power-cycled. The watchdog in
+// superviseSensorLink() covers both.
+#define CONNECT_ATTEMPT_TIMEOUT_MS 8000
+#define SCAN_SILENCE_RESTART_MS 15000
+static volatile uint32_t connectAttemptMs = 0;  // 0 = no attempt in flight
+static volatile uint32_t lastScanReportMs = 0;
+static volatile uint16_t cscConnHandle = BLE_CONN_HANDLE_INVALID;
+
 static void scanCallback(ble_gap_evt_adv_report_t *report) {
+  lastScanReportMs = millis();
   const uint8_t *a = report->peer_addr.addr;
   bool hasCsc = Bluefruit.Scanner.checkReportForUuid(report, cscService.uuid);
 
@@ -371,8 +391,13 @@ static void scanCallback(ble_gap_evt_adv_report_t *report) {
 
   if (hasCsc) {
     Serial.println("[scan] -> connecting");
-    Bluefruit.Central.connect(report);
-    return;  // no resume(): connecting takes over from scanning
+    if (Bluefruit.Central.connect(report)) {
+      connectAttemptMs = millis() | 1;  // never 0, which means "no attempt"
+      return;  // no resume(): connecting takes over from scanning
+    }
+    // Refused (e.g. an earlier attempt is still pending). Fall through and keep
+    // scanning rather than leaving the scanner paused.
+    Serial.println("[scan] connect() refused, resuming scan");
   }
 
   // SoftDevice pauses the scanner to deliver each report; without this it
@@ -381,6 +406,8 @@ static void scanCallback(ble_gap_evt_adv_report_t *report) {
 }
 
 static void centralConnectCallback(uint16_t connHandle) {
+  connectAttemptMs = 0;
+  cscConnHandle = connHandle;
   sensorStatus = RS_SENSOR_CONNECTING;
   if (cscService.discover(connHandle) && cscMeasurement.discover()) {
     cscMeasurement.enableNotify();
@@ -395,12 +422,42 @@ static void centralConnectCallback(uint16_t connHandle) {
 
 static void centralDisconnectCallback(uint16_t connHandle, uint8_t reason) {
   (void)connHandle;
+  cscConnHandle = BLE_CONN_HANDLE_INVALID;
+  connectAttemptMs = 0;
+  lastScanReportMs = millis();  // give the library's own rescan time to produce reports
   // 0x08 supervision timeout (out of range / battery out), 0x13 remote user
   // terminated (the sensor went to sleep), 0x3E failed to establish.
   Serial.printf("[csc] disconnected, reason 0x%02X\n", reason);
   cscHasState = false;  // re-baseline on reconnect, same as the phone manager
   sensorStatus = RS_SENSOR_LOST;
-  // Scanner.restartOnDisconnect(true) handles the reconnect scan.
+  // Scanner.restartOnDisconnect(true) handles the reconnect scan; the watchdog
+  // below covers the cases where that restart never happens.
+}
+
+static void superviseSensorLink(uint32_t now) {
+  if (cscConnHandle != BLE_CONN_HANDLE_INVALID) return;  // linked, nothing to do
+
+  uint32_t attemptMs = connectAttemptMs;
+  if (attemptMs != 0) {
+    if (now - attemptMs < CONNECT_ATTEMPT_TIMEOUT_MS) return;  // still trying
+    Serial.println("[csc] watchdog: connect attempt stuck, cancelling and rescanning");
+    sd_ble_gap_connect_cancel();
+    connectAttemptMs = 0;
+    lastScanReportMs = now;
+    Bluefruit.Scanner.start(0);
+    return;
+  }
+
+  // No link and no attempt: the scanner should be producing reports. Silence
+  // for this long means it is not running (a failed resume(), a restart that
+  // never happened), so kick it. Harmless in an empty field: stop() on an idle
+  // scanner just returns an error.
+  if (now - lastScanReportMs >= SCAN_SILENCE_RESTART_MS) {
+    Serial.println("[csc] watchdog: scanner silent, restarting");
+    Bluefruit.Scanner.stop();
+    Bluefruit.Scanner.start(0);
+    lastScanReportMs = now;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -950,6 +1007,7 @@ void loop() {
   }
 
   pollButtons();
+  superviseSensorLink(now);
 
   // Scheduled row start reached: the ride clock begins on its own, so the
   // deviation is anchored to the official minute whether or not anyone
