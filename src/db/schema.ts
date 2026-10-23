@@ -1,10 +1,11 @@
-import * as SQLite from 'expo-sqlite';
+import type * as SQLite from 'expo-sqlite';
+import { openDb } from './open-db';
 
 let db: SQLite.SQLiteDatabase;
 
 export function getDb(): SQLite.SQLiteDatabase {
   if (!db) {
-    db = SQLite.openDatabaseSync('enduro.db');
+    db = openDb();
   }
   return db;
 }
